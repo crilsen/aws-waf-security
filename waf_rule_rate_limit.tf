@@ -13,7 +13,7 @@ locals {
       name        = "rate-limit-per-ip"
       priority    = 40
       action      = local.rule_action_by_name["rate_limit"]
-      metric_name = "${var.name_prefix}-rate-limit-per-ip"
+      metric_name = "${local.name_base}-rate-limit-per-ip"
 
       statement = merge(local.statement_defaults, {
         type                  = "rate_based"

@@ -12,7 +12,7 @@ locals {
       name        = "ip-denylist"
       priority    = 5
       action      = local.rule_action_by_name["ip_denylist"]
-      metric_name = "${var.name_prefix}-ip-denylist"
+      metric_name = "${local.name_base}-ip-denylist"
 
       statement = merge(local.statement_defaults, {
         type       = "ip_set"

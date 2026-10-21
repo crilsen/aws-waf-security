@@ -13,6 +13,8 @@ No Terraform code exists yet. These conventions apply to the implementation that
 - Terraform 1.x syntax; one root module plus reusable locals; no providers beyond `aws` (and `random` only if genuinely needed).
 - Files split by concern: `versions.tf`, `providers.tf`, `variables.tf`, `main.tf`, `waf.tf`, `logging.tf`, `outputs.tf`, `locals.tf`, `terraform.tfvars.example`.
 - `waf_scope` selects `REGIONAL` (ALB, association resource) or `CLOUDFRONT` (global, `us-east-1` only, no association resource). Never attach a CLOUDFRONT ACL by managing another team's distribution.
+- Every resource name derives from `local.name_base = "<name_prefix>-<scope>-<region>"`. Never build a resource name directly from `var.name_prefix`: scope and Region must be present so targets cannot collide and are identifiable. Keep `name_prefix` <= 24 characters to stay inside IAM/Firehose name limits.
+- Every taggable resource must carry `Scope` and `Region` tags through `local.tags`; add cross-target identifiers there, not by parsing names.
 - All tunables are variables with explicit `description`, `type`, and safe defaults. Values that must be supplied by the operator (ALB ARN for `REGIONAL`, log bucket name) have no default.
 - Validate the ALB ARN format in a `variable` validation block; enforce Region consistency with the provider Region through a resource precondition.
 - One Terraform file per WAF rule (`waf_rule_<name>.tf`), each exposing a single `local.rule_<name>`; `waf_rules.tf` aggregates them and `waf.tf` renders them with `dynamic "rule"`. Never define WAF rules inline in `waf.tf`.

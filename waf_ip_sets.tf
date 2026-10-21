@@ -7,8 +7,8 @@
 resource "aws_wafv2_ip_set" "allow" {
   count = length(var.ip_allow_list) > 0 ? 1 : 0
 
-  name               = "${var.name_prefix}-allow"
-  description        = "Operator-provided allow list for ${var.name_prefix}-web-acl."
+  name               = "${local.name_base}-allow"
+  description        = "Operator-provided allow list for ${local.name_base}-web-acl."
   scope              = "REGIONAL"
   ip_address_version = "IPV4"
   addresses          = var.ip_allow_list
@@ -19,8 +19,8 @@ resource "aws_wafv2_ip_set" "allow" {
 resource "aws_wafv2_ip_set" "deny" {
   count = length(var.ip_deny_list) > 0 ? 1 : 0
 
-  name               = "${var.name_prefix}-deny"
-  description        = "Operator-provided deny list for ${var.name_prefix}-web-acl."
+  name               = "${local.name_base}-deny"
+  description        = "Operator-provided deny list for ${local.name_base}-web-acl."
   scope              = "REGIONAL"
   ip_address_version = "IPV4"
   addresses          = var.ip_deny_list

@@ -53,6 +53,7 @@ Consequences:
 | ADR-004 | ADR | Multi-region means one deployment per Region | Accepted | 2026-10-21 | inline |
 | ADR-005 | ADR | Per-region rule policy in `env/<region>.tfvars` | Accepted | 2026-10-21 | inline |
 | ADR-006 | ADR | CloudFront (global) scope with manual attachment | Accepted | 2026-10-21 | inline |
+| ADR-007 | ADR | Resource names include scope and Region | Accepted | 2026-10-21 | inline |
 
 ## Records
 
@@ -250,6 +251,31 @@ Consequences:
 - A CloudFront deployment needs its own policy file (`env/cloudfront/us-east-1.tfvars`), state key, and approval; it is a separate target, not a Region.
 - Destroying the CloudFront ACL requires detaching `web_acl_id` first, otherwise AWS refuses to delete an in-use ACL.
 - CloudFront global scope is still single-account: multi-account remains out of scope.
+
+### ADR-007 — Resource names include scope and Region
+
+Type: ADR
+Status: Accepted
+Date: 2026-10-21
+Owners: repository owner
+Supersedes: none
+
+Context:
+Multi-region and multi-scope deployments used the same `name_prefix` for every target, so the Web ACL, IP sets, Firehose stream, IAM role, metric names, and log group had identical names across targets. AWS scopes most of those names per Region, but Firehose stream and IAM role names are unique per account/Region regardless of WAF scope, so a Regional deployment and the CloudFront deployment in `us-east-1` could collide. Inventory and cost reporting also could not tell targets apart from names alone.
+
+Decision:
+Every resource name derives from `local.name_base = "<name_prefix>-<scope>-<region>"`, for example `waf-alb-regional-eu-west-1`. `name_prefix` is capped at 24 characters so the longest suffix (`-waf-firehose`, `aws-waf-logs-`) stays within the 64-character limits of IAM and Firehose. Every taggable resource also carries `Scope` and `Region` tags.
+
+Reasoning:
+- Scope is required to avoid real name collisions between Regional and CloudFront targets in `us-east-1`.
+- Region makes resources identifiable across targets in inventory, logs, and dashboards.
+- Tags give cost allocation without relying on name parsing.
+
+Consequences:
+- Names are longer but unambiguous; the README documents the mapping.
+- Changing `name_prefix`, `waf_scope`, or `aws_region` replaces the resources, including the ALB association. That is a reviewed plan with a new approval, never a silent rename.
+- `name_prefix` max length dropped from 32 to 24; existing callers with longer prefixes must shorten them.
+
 
 
 

@@ -28,3 +28,4 @@
 - 2026-10-21: added `waf_scope` (`REGIONAL`/`CLOUDFRONT`) with validation that CloudFront uses `us-east-1` and omits `alb_arn`; the association resource exists only for `REGIONAL` (ADR-006).
 - 2026-10-21: moved pipeline logic into `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`; both pipelines now call the same scripts, and policy files moved to `env/<scope>/<region>.tfvars`.
 - 2026-10-21: validated all three targets with `terraform console` (regional eu-west-1, regional us-east-1, cloudfront us-east-1) and confirmed the two CloudFront rejections.
+- 2026-10-21: resource names now derive from `<name_prefix>-<scope>-<region>` and tags include `Scope`/`Region` (ADR-007); `name_prefix` is capped at 24 characters.

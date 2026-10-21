@@ -5,7 +5,7 @@
       "Sid": "AllowOperatorRoleToWriteWafLogs",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_PREFIX>-waf-firehose"
+        "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_BASE>-waf-firehose"
       },
       "Action": [
         "s3:AbortMultipartUpload",

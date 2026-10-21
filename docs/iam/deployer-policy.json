@@ -72,7 +72,7 @@
       "Sid": "PassFirehoseRoleOnly",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_PREFIX>-waf-firehose",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_BASE>-waf-firehose",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": "firehose.amazonaws.com"
@@ -93,7 +93,7 @@
         "iam:TagRole",
         "iam:UntagRole"
       ],
-      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_PREFIX>-waf-firehose"
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<NAME_BASE>-waf-firehose"
     },
     {
       "Sid": "ManageFirehoseErrorLogs",
@@ -109,7 +109,7 @@
         "logs:TagResource",
         "logs:UntagResource"
       ],
-      "Resource": "arn:aws:logs:<AWS_REGION>:<ACCOUNT_ID>:log-group:/aws/kinesisfirehose/<NAME_PREFIX>-waf-logs*"
+      "Resource": "arn:aws:logs:<AWS_REGION>:<ACCOUNT_ID>:log-group:/aws/kinesisfirehose/<NAME_BASE>-waf-logs*"
     },
     {
       "Sid": "ReadOperatorLogBucket",

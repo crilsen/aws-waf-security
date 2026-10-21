@@ -13,7 +13,7 @@ locals {
       name            = "aws-managed-common"
       priority        = 10
       override_action = local.managed_override_action_by_name["managed_common"]
-      metric_name     = "${var.name_prefix}-aws-managed-common"
+      metric_name     = "${local.name_base}-aws-managed-common"
 
       statement = merge(local.statement_defaults, {
         type                    = "managed_rule_group"

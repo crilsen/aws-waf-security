@@ -4,9 +4,20 @@ locals {
       Project   = "aws-waf-security"
       ManagedBy = "terraform"
       Component = "waf"
+      Scope     = var.waf_scope
+      Region    = var.aws_region
     },
     var.tags,
   )
+
+  # Base for every resource name in this target.
+  #
+  # Scope and Region are part of the name because names of Firehose streams and
+  # IAM roles are unique per account/Region regardless of WAF scope: without the
+  # scope, a Regional deployment in us-east-1 and the CloudFront deployment would
+  # collide. With the Region, resources from different targets are also
+  # distinguishable in inventory and logs.
+  name_base = "${var.name_prefix}-${lower(var.waf_scope)}-${var.aws_region}"
 
   # Rule names are the keys shared by enabled_rules and rule_actions.
   rule_names = toset([

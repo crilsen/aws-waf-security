@@ -19,7 +19,7 @@ data "aws_iam_policy_document" "firehose_assume_role" {
 resource "aws_iam_role" "firehose" {
   count = var.enable_waf_logging ? 1 : 0
 
-  name               = "${var.name_prefix}-waf-firehose"
+  name               = "${local.name_base}-waf-firehose"
   description        = "Allows Firehose to deliver WAF logs to ${var.log_bucket_name}."
   assume_role_policy = data.aws_iam_policy_document.firehose_assume_role.json
 
@@ -62,7 +62,7 @@ data "aws_iam_policy_document" "firehose_delivery" {
 resource "aws_iam_role_policy" "firehose" {
   count = var.enable_waf_logging ? 1 : 0
 
-  name   = "${var.name_prefix}-waf-firehose-delivery"
+  name   = "${local.name_base}-waf-firehose-delivery"
   role   = aws_iam_role.firehose[0].id
   policy = data.aws_iam_policy_document.firehose_delivery[0].json
 }

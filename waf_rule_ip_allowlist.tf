@@ -12,7 +12,7 @@ locals {
       name        = "ip-allowlist"
       priority    = 0
       action      = "allow"
-      metric_name = "${var.name_prefix}-ip-allowlist"
+      metric_name = "${local.name_base}-ip-allowlist"
 
       statement = merge(local.statement_defaults, {
         type       = "ip_set"

@@ -19,7 +19,7 @@ locals {
       name        = "geo-restriction"
       priority    = 30
       action      = local.rule_action_by_name["geo"]
-      metric_name = "${var.name_prefix}-geo-restriction"
+      metric_name = "${local.name_base}-geo-restriction"
 
       statement = merge(local.statement_defaults, {
         type          = "geo_match"

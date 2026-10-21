@@ -3,7 +3,7 @@
 resource "aws_cloudwatch_log_group" "firehose" {
   count = var.enable_waf_logging ? 1 : 0
 
-  name              = "/aws/kinesisfirehose/${var.name_prefix}-waf-logs"
+  name              = "/aws/kinesisfirehose/${local.name_base}-waf-logs"
   retention_in_days = var.firehose_log_retention_days
 
   tags = local.tags
@@ -21,7 +21,7 @@ resource "aws_cloudwatch_log_stream" "firehose" {
 resource "aws_kinesis_firehose_delivery_stream" "waf" {
   count = var.enable_waf_logging ? 1 : 0
 
-  name        = "aws-waf-logs-${var.name_prefix}"
+  name        = "aws-waf-logs-${local.name_base}"
   destination = "extended_s3"
 
   extended_s3_configuration {

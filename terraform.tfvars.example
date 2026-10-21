@@ -24,7 +24,9 @@ alb_arn = "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/
 # Access, and a policy that lets the Firehose role write to it.
 log_bucket_name = "example-waf-logs-123456789012"
 
-# Prefix used for the Web ACL, rules, IP sets, Firehose stream, and log group.
+# Base name for the Web ACL, rules, IP sets, Firehose stream, and log group.
+# Effective names are <name_prefix>-<scope>-<region>-<suffix>, for example
+# waf-alb-regional-eu-west-1-web-acl. Keep it at most 24 characters.
 name_prefix = "waf-alb"
 
 # default_action = "block" only after you are confident in the rules.

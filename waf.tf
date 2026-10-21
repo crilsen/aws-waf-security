@@ -1,6 +1,6 @@
 resource "aws_wafv2_web_acl" "this" {
-  name        = "${var.name_prefix}-web-acl"
-  description = "AWS WAFv2 ${var.waf_scope} Web ACL managed by Terraform."
+  name        = "${local.name_base}-web-acl"
+  description = "AWS WAFv2 ${var.waf_scope} Web ACL managed by Terraform for ${var.aws_region}."
   scope       = var.waf_scope
 
   default_action {
@@ -116,7 +116,7 @@ resource "aws_wafv2_web_acl" "this" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "${var.name_prefix}-web-acl"
+    metric_name                = "${local.name_base}-web-acl"
     sampled_requests_enabled   = true
   }
 

@@ -7,7 +7,7 @@
 - Source of truth: `AGENTS.md` → `.ai/`
 - Budget / usage observed: `unknown` (not exposed by this session)
 - Checkpoint updated: `2026-10-21 16:05`
-- Last goal: add CloudFront (global) scope, per-target policy (`env/<scope>/<region>.tfvars`), and shared pipeline scripts on top of the multi-region, per-rule-file module
+- Last goal: include scope and Region in every resource name and in the tags, so targets are distinguishable and cannot collide
 - Annotation language: `English` — chosen 2026-10-21, not declared as a standing preference
 - Exact next action: none pending; if more work is requested, follow `.ai/workflows/terraform-change.md` and re-run `./scripts/validate.sh`
 - Blocked by: `None.` (`terraform plan`/`apply` and AWS access are out of scope by design)
@@ -25,6 +25,7 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - Scope: `REGIONAL` (ALB, association resource) or `CLOUDFRONT` (global, `us-east-1` only, attached by the distribution owner through `web_acl_id`) — ADR-006.
 - Per-region policy: `enabled_rules` selects the rule set, `rule_actions` overrides `rule_mode` per rule, and `env/<scope>/<region>.tfvars` is the reviewed, versioned policy loaded by both pipelines (ADR-005). Three policy files exist: `regional/eu-west-1`, `regional/us-east-1`, `cloudfront/us-east-1`.
 - Both pipelines implemented and statically verified; they now delegate to `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`. `RULE_MODE` was removed from parameters so policy changes go through git review.
+- Naming: every resource name derives from `<name_prefix>-<scope>-<region>`; tags carry `Scope` and `Region` (ADR-007). `name_prefix` is capped at 24 characters, and renaming replaces resources.
 - Validation passes: `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck`, plus `terraform console -var-file=...` policy resolution for all three targets.
 - Nothing was planned, applied, deployed, or authenticated against AWS.
 

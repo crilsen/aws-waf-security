@@ -53,13 +53,13 @@ variable "log_bucket_name" {
 }
 
 variable "name_prefix" {
-  description = "Prefix for the names of the Web ACL, rules, IP sets, Firehose stream, and CloudWatch log group."
+  description = "Base name for resources. The effective name is <name_prefix>-<scope>-<region>-<suffix>, for example waf-alb-regional-eu-west-1-web-acl, so keep it short: at most 24 characters."
   type        = string
   default     = "waf-alb"
 
   validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$", var.name_prefix))
-    error_message = "name_prefix must be 2-32 characters of lowercase letters, digits and hyphens, starting and ending with an alphanumeric character."
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,22}[a-z0-9]$", var.name_prefix))
+    error_message = "name_prefix must be 2-24 characters of lowercase letters, digits and hyphens, starting and ending with an alphanumeric character. The limit leaves room for -<scope>-<region> plus IAM and Firehose suffixes."
   }
 }
 

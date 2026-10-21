@@ -20,6 +20,7 @@ Every rule starts in `COUNT` mode. Blocking is a deliberate, reviewed step that 
 - [Operator-provided resources](#operator-provided-resources)
 - [Repository layout](#repository-layout)
 - [Variables](#variables)
+- [Naming and tags](#naming-and-tags)
 - [Terraform state backend](#terraform-state-backend)
 - [IAM permissions](#iam-permissions)
 - [Local usage](#local-usage)
@@ -63,7 +64,7 @@ Every rule starts in `COUNT` mode. Blocking is a deliberate, reviewed step that 
                       │                    │
                       │                    ▼
                       │        Amazon Data Firehose
-                      │        aws-waf-logs-<name_prefix>
+                      │        aws-waf-logs-<name_base>
                       │                    │
                       │                    ▼
                       │      S3 bucket provided by the operator
@@ -117,7 +118,7 @@ The bucket named by `log_bucket_name` must already exist and must have:
 The Firehose role ARN is predictable before the first apply:
 
 ```text
-arn:aws:iam::<ACCOUNT_ID>:role/<name_prefix>-waf-firehose
+arn:aws:iam::<ACCOUNT_ID>:role/<name_base>-waf-firehose
 ```
 
 Apply the bucket policy with that principal before the first `apply`, otherwise Firehose is created successfully but every delivery fails.
@@ -185,7 +186,7 @@ Values that must be supplied explicitly have no default.
 | `aws_region` | string | required | Region of the Web ACL, Firehose stream, log bucket, and ALB. `CLOUDFRONT` requires `us-east-1`. |
 | `alb_arn` | string | null | ARN of the existing ALB. Required for `REGIONAL`, must be omitted for `CLOUDFRONT`. |
 | `log_bucket_name` | string | required | Existing bucket for WAF logs. |
-| `name_prefix` | string | `waf-alb` | Prefix for ACL, rules, IP sets, Firehose, and log group. |
+| `name_prefix` | string | `waf-alb` | Base name. Effective names are `<name_prefix>-<scope>-<region>-<suffix>`; max 24 characters. |
 | `default_action` | string | `allow` | Action when no rule matches: `allow` or `block`. |
 | `rule_mode` | string | `COUNT` | Default action for every detection rule and managed group. `rule_actions` overrides it per rule. |
 | `rule_actions` | map(string) | `{}` | Per-rule action for this Region, for example `{ rate_limit = "BLOCK" }`. Keys: `ip_denylist`, `managed_common`, `managed_known_bad_inputs`, `geo`, `rate_limit`. |
@@ -204,7 +205,42 @@ Values that must be supplied explicitly have no default.
 | `firehose_log_retention_days` | number | `14` | Retention for the Firehose error log group. |
 | `tags` | map(string) | `{}` | Extra tags merged into the defaults. |
 
-Outputs: `web_acl_arn`, `web_acl_id`, `web_acl_name`, `web_acl_association_id`, `associated_alb_arn`, `rule_mode`, `enabled_rules`, `effective_rule_actions`, `rules`, `log_bucket_name`, `firehose_delivery_stream_arn`, `firehose_iam_role_arn`, `firehose_error_log_group_name`.
+Outputs: `web_acl_arn`, `web_acl_id`, `web_acl_name`, `web_acl_scope`, `web_acl_association_id`, `associated_alb_arn`, `rule_mode`, `enabled_rules`, `effective_rule_actions`, `rules`, `log_bucket_name`, `firehose_delivery_stream_arn`, `firehose_iam_role_arn`, `firehose_error_log_group_name`.
+
+## Naming and tags
+
+Every resource name is derived from one base that includes the scope and the Region:
+
+```text
+name_base = <name_prefix>-<scope>-<region>
+            waf-alb-regional-eu-west-1
+            waf-alb-cloudfront-us-east-1
+```
+
+| Resource | Name |
+| --- | --- |
+| Web ACL | `<name_base>-web-acl` |
+| IP sets | `<name_base>-allow`, `<name_base>-deny` |
+| Firehose stream | `aws-waf-logs-<name_base>` |
+| Firehose role | `<name_base>-waf-firehose` |
+| Firehose error log group | `/aws/kinesisfirehose/<name_base>-waf-logs` |
+| CloudWatch metric names | `<name_base>-web-acl`, `<name_base>-<rule>` |
+
+The scope is part of the name because Firehose stream and IAM role names are unique per account and Region regardless of WAF scope: without it, a Regional deployment and the CloudFront deployment in `us-east-1` would collide. The Region makes resources from different targets distinguishable in inventory and logs, even though AWS already scopes them per Region.
+
+Every taggable resource also receives:
+
+| Tag | Value |
+| --- | --- |
+| `Project` | `aws-waf-security` |
+| `ManagedBy` | `terraform` |
+| `Component` | `waf` |
+| `Scope` | `REGIONAL` or `CLOUDFRONT` |
+| `Region` | `aws_region` |
+
+`var.tags` is merged on top, so a caller can override any of them.
+
+Names are immutable in AWS WAF, Firehose, and IAM: changing `name_prefix`, `waf_scope`, or `aws_region` replaces the resources (the ALB association is recreated). That is a reviewed plan, not a silent rename. The state key is already per target, so different targets never share state.
 
 ## Terraform state backend
 
@@ -233,11 +269,11 @@ Two separate roles are involved.
 
 Uses temporary credentials only. See [`docs/iam/deployer-policy.json`](docs/iam/deployer-policy.json) for a least-privilege starting point: WAFv2 (Web ACL, IP sets, logging configuration), Firehose, the Firehose role with `iam:PassRole` restricted to `firehose.amazonaws.com`, the Firehose error log group, read access to the log bucket, and read/write access to the state bucket prefix.
 
-Replace `<ACCOUNT_ID>`, `<AWS_REGION>`, `<LOG_BUCKET>`, `<TF_STATE_BUCKET>`, and `<NAME_PREFIX>` before use.
+Replace `<ACCOUNT_ID>`, `<AWS_REGION>`, `<LOG_BUCKET>`, `<TF_STATE_BUCKET>`, and `<NAME_BASE>` before use.
 
 ### 2. Firehose delivery role (created by Terraform)
 
-`<name_prefix>-waf-firehose` can only write to the operator's log bucket and to its own CloudWatch log group. It cannot read or delete anything else.
+`<name_base>-waf-firehose` can only write to the operator's log bucket and to its own CloudWatch log group. It cannot read or delete anything else.
 
 ### GitLab OIDC
 
@@ -351,7 +387,7 @@ The IP allow list is the exception: it evaluates to `allow` from the start, beca
 
 ### Observe
 
-- **CloudWatch metrics**: one metric namespace per rule, named `<name_prefix>-<rule>`; the Web ACL itself uses `<name_prefix>-web-acl`.
+- **CloudWatch metrics**: one metric namespace per rule, named `<name_base>-<rule>`; the Web ACL itself uses `<name_base>-web-acl`.
 - **Sampled requests**: enabled on every rule and on the Web ACL. Inspect them in the WAF console under the Web ACL's traffic overview to see the URI, headers, and the rule that matched.
 - **Logs**: the full request records are in the log bucket (see [Logging](#logging)). Use them to identify offending clients, URIs, and rule names.
 
@@ -393,9 +429,9 @@ A rule that should not exist in a Region at all is removed from `enabled_rules` 
 
 When `enable_waf_logging = true` (default):
 
-- WAF sends every request record to Firehose `aws-waf-logs-<name_prefix>`;
+- WAF sends every request record to Firehose `aws-waf-logs-<name_base>`;
 - Firehose buffers (5 MiB / 300 s by default), compresses with GZIP, and writes to the operator's bucket under `waf-logs/year=.../month=.../day=.../hour=.../`;
-- delivery errors are written to `<bucket>/waf-logs-errors/<error-type>/...` and recorded in the CloudWatch log group `/aws/kinesisfirehose/<name_prefix>-waf-logs` (14-day retention by default);
+- delivery errors are written to `<bucket>/waf-logs-errors/<error-type>/...` and recorded in the CloudWatch log group `/aws/kinesisfirehose/<name_base>-waf-logs` (14-day retention by default);
 - the `authorization` and `cookie` headers are redacted by default (`waf_log_redacted_headers`).
 
 Logging every request has a cost. If the volume is high, lower the buffering frequency impact by increasing `firehose_buffering_size` / `firehose_buffering_interval`, and consider adding a WAF logging filter (see [Limitations](#limitations)).
@@ -475,7 +511,7 @@ Multi-account remains out of scope.
 | Legitimate users receive 403 | A rule is in `BLOCK` and matches real traffic | Find the rule in sampled requests, set a per-rule `COUNT` override, plan, approve, apply. |
 | Nothing is blocked | `rule_mode = "COUNT"` | Expected until you promote to `BLOCK`; check the metrics first. |
 | Requests are still served and WAF metrics are flat | Web ACL associated with another ARN | Check `associated_alb_arn` output and the WAF console association. |
-| Firehose delivery errors | Bucket policy does not allow `<name_prefix>-waf-firehose` | Apply [`docs/iam/log-bucket-policy.json`](docs/iam/log-bucket-policy.json) with the correct principal. |
+| Firehose delivery errors | Bucket policy does not allow `<name_base>-waf-firehose` | Apply [`docs/iam/log-bucket-policy.json`](docs/iam/log-bucket-policy.json) with the correct principal. |
 | `InvalidParameterException: WAFInvalidParameterException` on logging | Firehose stream and Web ACL in different Regions | Keep both in `aws_region`. |
 | `Error acquiring the state lock` | A previous run is still holding the lock | Confirm no run is active, then use `terraform force-unlock <ID>` deliberately (never in CI). |
 | Plan wants to replace the association on every run | State and Region mismatch between runs | Ensure the state key includes the Region and matches the Region being deployed. |
@@ -518,6 +554,7 @@ Run cleanup from the same Region/state pair that created the resources. Do not d
 ## Limitations
 
 - **One ALB per deployment.** The ARN is a single required input by design; several ALBs in one Region need several deployments with distinct `name_prefix` and state keys.
+- **Renaming replaces resources.** `name_prefix`, `waf_scope`, and `aws_region` are part of every resource name, so changing them recreates the Web ACL, IP sets, Firehose stream, and IAM role. Plan and review it like any other change.
 - **Fixed rule catalog.** The six rules are the supported set; `enabled_rules` and `rule_actions` change which of them exist and how they act per Region, but a new kind of statement (custom match, header rule, trusted IP group) is a code change.
 - **IPv4 only.** IP sets use `IPV4`; IPv6 CIDRs are rejected by validation.
 - **Geo blocking only.** `geo_restricted_countries` blocks the listed countries. An "allow only these countries" policy is not expressible without listing every other country, so it is out of scope.
@@ -543,6 +580,6 @@ Everything below is reproducible with `./scripts/validate.sh`, which never touch
 - `.gitlab-ci.yml` parsed as YAML; stages, jobs, artifact, checksum step, OIDC tokens, branch restrictions, and the blocking manual approval asserted by `tests/check_pipelines.py`.
 - `Jenkinsfile` checked structurally: stage order, `stash`/`unstash` around the plan file, `apply` never calls `terraform plan`, approval restricted by `submitter` and a timeout, protected branch on Plan/Approval/Apply.
 - `shellcheck` on `scripts/*.sh`.
-- Per-target policy files resolved with `terraform console -var-file=...` for all three included targets: `regional/eu-west-1`, `regional/us-east-1`, and `cloudfront/us-east-1`. Confirmed different rule sets and actions per target, and confirmed that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`. This check also caught a real defect: a tuple-typed country list made `concat` fail at plan time, fixed by forcing `tolist` in `local.statement_defaults`.
+- Per-target policy files resolved with `terraform console -var-file=...` for all three included targets: `regional/eu-west-1`, `regional/us-east-1`, and `cloudfront/us-east-1`. Confirmed different rule sets and actions per target, the effective `name_base` per target, and that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`. This check also caught a real defect: a tuple-typed country list made `concat` fail at plan time, fixed by forcing `tolist` in `local.statement_defaults`.
 
 Not validated: `terraform plan`, `terraform apply`, and any AWS interaction. Those require an account, an existing ALB, and both buckets, and are intentionally out of scope for this repository.
