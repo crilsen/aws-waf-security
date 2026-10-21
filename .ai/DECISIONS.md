@@ -52,6 +52,7 @@ Consequences:
 | TDR-002 | TDR | S3 native state locking instead of DynamoDB | Accepted | 2026-10-21 | inline |
 | ADR-004 | ADR | Multi-region means one deployment per Region | Accepted | 2026-10-21 | inline |
 | ADR-005 | ADR | Per-region rule policy in `env/<region>.tfvars` | Accepted | 2026-10-21 | inline |
+| ADR-006 | ADR | CloudFront (global) scope with manual attachment | Accepted | 2026-10-21 | inline |
 
 ## Records
 
@@ -209,7 +210,7 @@ The owner needs a different rule set and different actions per Region. Before th
 Decision:
 - `enabled_rules` (set of rule names) decides which rules exist in a Region.
 - `rule_actions` (map of rule name to `COUNT`/`BLOCK`) overrides `rule_mode` per rule.
-- The reviewed policy for each Region lives in `env/<region>.tfvars`, is committed, and is loaded by both pipelines through `-var-file="env/${AWS_REGION}.tfvars"`. Plan fails when the file is missing.
+- The reviewed policy for each target lives in `env/<scope>/<region>.tfvars`, is committed, and is loaded by both pipelines through `-var-file="env/<scope>/<region>.tfvars"`. Plan fails when the file is missing.
 - `rule_mode` remains the default for any rule not listed in `rule_actions`.
 
 Reasoning:
@@ -217,9 +218,39 @@ Policy becomes reviewable in a diff, one Region can be promoted independently, a
 
 Consequences:
 - A policy change is a commit + merge request + plan + approval, not a pipeline parameter change.
-- `env/*.tfvars` must never hold secrets; `.gitignore` re-includes `env/*.tfvars` on purpose.
+- `env/*.tfvars` must never hold secrets; `.gitignore` re-includes `env/*/*.tfvars` on purpose.
 - `terraform validate` does not evaluate variable values, so policy edits must also be checked with `terraform console -var-file=...` or a plan. This is documented in the README.
 - The rule catalog is still fixed: `enabled_rules` selects among the six supported rules; a new statement type is a code change.
+
+### ADR-006 — CloudFront (global) scope with manual attachment
+
+Type: ADR
+Status: Accepted
+Date: 2026-10-21
+Owners: repository owner
+Supersedes: none (the original specification excluded CloudFront/global WAF; this records the later request)
+
+Context:
+The owner asked to also cover a CloudFront distribution. A CloudFront Web ACL is global, must be created in `us-east-1`, and has no standalone association resource: AWS attaches it only through `web_acl_id` on the distribution. Managing the distribution is outside this project's remit (it never creates or changes entry points).
+
+Decision:
+`waf_scope` selects `REGIONAL` (default) or `CLOUDFRONT`.
+- `CLOUDFRONT` requires `aws_region = "us-east-1"` and rejects a non-null `alb_arn`; both are input validations.
+- The association resource is created only for `REGIONAL`.
+- For `CLOUDFRONT`, the project outputs `web_acl_arn` and the distribution owner sets `web_acl_id` in the stack that manages the distribution.
+- Logging uses the same Firehose path, in `us-east-1`, because Firehose cannot deliver across Regions.
+
+Reasoning:
+- Keeps the project's hard boundary: it never mutates the resource it protects.
+- Avoids the alternative of importing and managing the CloudFront distribution just to set one attribute.
+- Uses the same module, rules, policy files, and approval gate for both scopes.
+
+Consequences:
+- CloudFront protection is two-step: apply this project, then attach the ARN in the distribution stack. The README documents it and the outputs make the ARN explicit.
+- A CloudFront deployment needs its own policy file (`env/cloudfront/us-east-1.tfvars`), state key, and approval; it is a separate target, not a Region.
+- Destroying the CloudFront ACL requires detaching `web_acl_id` first, otherwise AWS refuses to delete an in-use ACL.
+- CloudFront global scope is still single-account: multi-account remains out of scope.
+
 
 
 

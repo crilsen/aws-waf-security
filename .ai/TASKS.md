@@ -25,3 +25,6 @@
 - 2026-10-21: validated with `terraform fmt -check`, `init -backend=false`, `validate`, pipeline static checks, and `shellcheck`; all passed.
 - 2026-10-21: implemented per-region policy (ADR-005): `enabled_rules`, `rule_actions`, and `env/<region>.tfvars` loaded by both pipelines; removed `RULE_MODE` from pipeline parameters so policy changes are reviewed in git.
 - 2026-10-21: fixed a plan-time `concat` panic caused by a tuple-typed `country_codes`; defaults now use `tolist([])`, verified with `terraform console` for both Regions and for per-rule BLOCK overrides.
+- 2026-10-21: added `waf_scope` (`REGIONAL`/`CLOUDFRONT`) with validation that CloudFront uses `us-east-1` and omits `alb_arn`; the association resource exists only for `REGIONAL` (ADR-006).
+- 2026-10-21: moved pipeline logic into `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`; both pipelines now call the same scripts, and policy files moved to `env/<scope>/<region>.tfvars`.
+- 2026-10-21: validated all three targets with `terraform console` (regional eu-west-1, regional us-east-1, cloudfront us-east-1) and confirmed the two CloudFront rejections.

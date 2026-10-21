@@ -72,3 +72,14 @@ Evidence: `terraform console -var-file=env/eu-west-1.tfvars` failed with `panic 
 Pattern / rule: Give every nested field in a shared object shape a concrete type. Use `tolist([])` as the default and `tolist(...)` on assignment instead of `null`/bare lists.
 Promotion: CONVENTIONS.md
 
+### L-004 — CloudFront Web ACLs have no association resource
+
+Date: 2026-10-21
+Status: active
+Confidence: observed
+Scope: terraform/aws-provider
+Context: Adding `waf_scope = "CLOUDFRONT"` to the module.
+Evidence: `aws_wafv2_web_acl_association` only accepts resources such as ALB and API Gateway; CloudFront attachments are made through `web_acl_id` on `aws_cloudfront_distribution`. The API also requires CLOUDFRONT-scoped ACLs to live in `us-east-1`, which is why `aws_region` and `tf-init.sh` reject any other Region for that scope.
+Pattern / rule: For CloudFront, create the ACL in `us-east-1`, output the ARN, and let the distribution owner set `web_acl_id`; never import a distribution just to attach an ACL. Destroy requires detaching it first.
+Promotion: none
+

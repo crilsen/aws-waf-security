@@ -29,8 +29,9 @@ pipeline {
   }
 
   parameters {
-    string(name: 'AWS_REGION', defaultValue: 'eu-west-1', description: 'Region of the ALB and of this deployment. Also selects the state key, so each Region deploys independently.')
-    string(name: 'ALB_ARN', defaultValue: '', description: 'ARN of the existing ALB. Required and must be in AWS_REGION.')
+    string(name: 'AWS_REGION', defaultValue: 'eu-west-1', description: 'Target Region. CLOUDFRONT must be us-east-1.')
+    choice(name: 'WAF_SCOPE', choices: ['REGIONAL', 'CLOUDFRONT'], description: 'REGIONAL protects an ALB; CLOUDFRONT is the global scope attached through the distribution web_acl_id.')
+    string(name: 'ALB_ARN', defaultValue: '', description: 'ARN of the existing ALB. Required for REGIONAL scope, ignored for CLOUDFRONT.')
     string(name: 'LOG_BUCKET', defaultValue: '', description: 'Existing S3 bucket that receives WAF logs through Firehose.')
     string(name: 'TF_STATE_BUCKET', defaultValue: '', description: 'Existing S3 bucket that stores Terraform state.')
     string(name: 'TF_STATE_REGION', defaultValue: '', description: 'Region of the state bucket. Empty uses AWS_REGION.')
@@ -44,7 +45,6 @@ pipeline {
     PLAN_FILE = 'tfplan.bin'
     PLAN_TEXT = 'tfplan.txt'
     PLAN_CHECKSUM = 'tfplan.sha256'
-    TF_STATE_KEY = "aws-waf-security/${params.AWS_REGION}/terraform.tfstate"
   }
 
   stages {
@@ -68,26 +68,10 @@ pipeline {
       }
       steps {
         withCredentials([string(credentialsId: params.CREDENTIALS_ID, variable: 'AWS_ROLE_ARN')]) {
-          sh '''
-            set -eu
-            ./scripts/require-env.sh AWS_REGION ALB_ARN LOG_BUCKET TF_STATE_BUCKET AWS_ROLE_ARN
-            test -f "env/${AWS_REGION}.tfvars" || { echo "Missing env/${AWS_REGION}.tfvars"; exit 1; }
-            : "${TF_STATE_REGION:=${AWS_REGION}}"
-            export TF_STATE_REGION
-            eval "$(./scripts/assume-role.sh)"
-            terraform init -input=false \
-              -backend-config="bucket=${TF_STATE_BUCKET}" \
-              -backend-config="key=${TF_STATE_KEY}" \
-              -backend-config="region=${TF_STATE_REGION}" \
-              -backend-config="encrypt=true"
-            terraform plan -input=false -lock-timeout=5m -out="${PLAN_FILE}" \
-              -var="aws_region=${AWS_REGION}" \
-              -var="alb_arn=${ALB_ARN}" \
-              -var="log_bucket_name=${LOG_BUCKET}" \
-              -var-file="env/${AWS_REGION}.tfvars"
-            terraform show -no-color "${PLAN_FILE}" > "${PLAN_TEXT}"
-            sha256sum "${PLAN_FILE}" > "${PLAN_CHECKSUM}"
-          '''
+          // Validates the target, assumes the role, initializes the backend for
+          // this scope and Region, plans from the reviewed policy file, and
+          // writes the plan, its text rendering, and its checksum.
+          sh './scripts/tf-plan.sh'
         }
         stash name: 'approved-plan', includes: "${env.PLAN_FILE},${env.PLAN_CHECKSUM}", allowEmpty: false
       }
@@ -119,20 +103,9 @@ pipeline {
       steps {
         unstash 'approved-plan'
         withCredentials([string(credentialsId: params.CREDENTIALS_ID, variable: 'AWS_ROLE_ARN')]) {
-          sh '''
-            set -eu
-            ./scripts/require-env.sh AWS_REGION TF_STATE_BUCKET AWS_ROLE_ARN
-            : "${TF_STATE_REGION:=${AWS_REGION}}"
-            export TF_STATE_REGION
-            sha256sum -c "${PLAN_CHECKSUM}"
-            eval "$(./scripts/assume-role.sh)"
-            terraform init -input=false \
-              -backend-config="bucket=${TF_STATE_BUCKET}" \
-              -backend-config="key=${TF_STATE_KEY}" \
-              -backend-config="region=${TF_STATE_REGION}" \
-              -backend-config="encrypt=true"
-            terraform apply -input=false "${PLAN_FILE}"
-          '''
+          // Verifies the checksum and applies the stored plan file. It never
+          // runs terraform plan.
+          sh './scripts/tf-apply.sh'
         }
       }
     }

@@ -7,7 +7,7 @@
 - Source of truth: `AGENTS.md` → `.ai/`
 - Budget / usage observed: `unknown` (not exposed by this session)
 - Checkpoint updated: `2026-10-21 16:05`
-- Last goal: add per-region rule policy (`enabled_rules`, `rule_actions`, `env/<region>.tfvars`) on top of the multi-region, per-rule-file module
+- Last goal: add CloudFront (global) scope, per-target policy (`env/<scope>/<region>.tfvars`), and shared pipeline scripts on top of the multi-region, per-rule-file module
 - Annotation language: `English` — chosen 2026-10-21, not declared as a standing preference
 - Exact next action: none pending; if more work is requested, follow `.ai/workflows/terraform-change.md` and re-run `./scripts/validate.sh`
 - Blocked by: `None.` (`terraform plan`/`apply` and AWS access are out of scope by design)
@@ -22,16 +22,18 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - Terraform module complete: Web ACL, association, six per-file rules, optional IP sets, Firehose logging to the operator's bucket, least-privilege Firehose IAM, outputs.
 - Both S3 buckets (logs and state) are operator-provided; the module creates neither and fails fast if the log bucket is missing or in another Region.
 - Multi-region = one deployment per Region with a Region-scoped state key (ADR-004).
-- Per-region policy: `enabled_rules` selects the rule set, `rule_actions` overrides `rule_mode` per rule, and `env/<region>.tfvars` is the reviewed, versioned policy loaded by both pipelines (ADR-005). `env/eu-west-1.tfvars` and `env/us-east-1.tfvars` differ on purpose.
-- Both pipelines implemented and statically verified; `RULE_MODE` was removed from parameters so policy changes go through git review.
-- Validation passes: `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck`, plus `terraform console -var-file=...` policy resolution for both Regions.
+- Scope: `REGIONAL` (ALB, association resource) or `CLOUDFRONT` (global, `us-east-1` only, attached by the distribution owner through `web_acl_id`) — ADR-006.
+- Per-region policy: `enabled_rules` selects the rule set, `rule_actions` overrides `rule_mode` per rule, and `env/<scope>/<region>.tfvars` is the reviewed, versioned policy loaded by both pipelines (ADR-005). Three policy files exist: `regional/eu-west-1`, `regional/us-east-1`, `cloudfront/us-east-1`.
+- Both pipelines implemented and statically verified; they now delegate to `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`. `RULE_MODE` was removed from parameters so policy changes go through git review.
+- Validation passes: `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck`, plus `terraform console -var-file=...` policy resolution for all three targets.
 - Nothing was planned, applied, deployed, or authenticated against AWS.
 
 ## What Was Done
 
 - Recorded ADR-001 (operator-provided buckets), ADR-002 (one file per rule), ADR-003 (priority order), ADR-004 (multi-region = one deployment per Region), ADR-005 (per-region policy), TDR-001 (WAFv2 + Firehose), TDR-002 (S3 native locking).
 - Built the module and the pipelines as listed in `TASKS.md` → Completed.
-- Added `env/<region>.tfvars` policy files and wired `-var-file` into both pipelines with a fail-fast existence check.
+- Added `env/<scope>/<region>.tfvars` policy files and wired `-var-file` into both pipelines with a fail-fast existence check.
+- Added `waf_scope` with CloudFront support and moved pipeline logic into `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`.
 - Fixed two real defects found during validation: the `aws_s3_bucket` data source exposes `region` (not `bucket_region`), and a tuple-typed `country_codes` made `concat` panic at plan time while `validate` passed.
 
 ## Files Changed
@@ -43,11 +45,12 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 
 ## Decisions Made
 
-- Buckets are operator-provided; state key includes the Region; native S3 locking.
+- Buckets are operator-provided; state key includes scope and Region; native S3 locking.
 - Managed rule groups use `override_action` (`none`/`count`); detection rules use `action` (`block`/`count`).
 - The IP allow list always allows, in both modes; `ip_allowlist` is not configurable via `rule_actions`.
 - Geo restriction only blocks listed countries; "allow only these countries" is a documented limitation.
-- Policy lives in reviewed per-region files, not in pipeline parameters.
+- Policy lives in reviewed per-target files, not in pipeline parameters.
+- CloudFront ACLs are created in `us-east-1` and attached by the distribution owner, never by importing the distribution.
 - Apply consumes a checksummed plan artifact; neither pipeline plans after approval.
 
 ## Problems / Risks
@@ -61,7 +64,7 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 ## Validation Performed
 
 - `./scripts/validate.sh` — passed: `terraform fmt -check -recursive`, `terraform init -backend=false`, `terraform validate` (AWS provider 5.100.0), `tests/check_pipelines.py`, `shellcheck scripts/*.sh`.
-- `terraform console` with each `env/<region>.tfvars` — confirmed different rule sets and actions per Region, and per-rule `BLOCK` overrides resolving correctly.
+- `terraform console` with each `env/<scope>/<region>.tfvars` — confirmed different rule sets and actions per target, per-rule `BLOCK` overrides, and that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`.
 - Not validated: `terraform plan`, `terraform apply`, real GitLab/Jenkins execution, any AWS API call.
 
 ## Next Actions

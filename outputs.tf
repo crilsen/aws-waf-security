@@ -13,13 +13,18 @@ output "web_acl_name" {
   value       = aws_wafv2_web_acl.this.name
 }
 
+output "web_acl_scope" {
+  description = "Scope of the Web ACL: REGIONAL or CLOUDFRONT."
+  value       = aws_wafv2_web_acl.this.scope
+}
+
 output "web_acl_association_id" {
-  description = "ID of the association between the Web ACL and the existing ALB."
-  value       = aws_wafv2_web_acl_association.alb.id
+  description = "ID of the association between the Web ACL and the existing ALB, or null for CLOUDFRONT scope."
+  value       = one(aws_wafv2_web_acl_association.alb[*].id)
 }
 
 output "associated_alb_arn" {
-  description = "ALB ARN supplied by the operator and associated with the Web ACL."
+  description = "ALB ARN supplied by the operator and associated with the Web ACL, or null for CLOUDFRONT scope."
   value       = var.alb_arn
 }
 

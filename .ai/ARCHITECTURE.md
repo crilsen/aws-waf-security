@@ -64,11 +64,15 @@ waf.tf                            web ACL + association
 
 ## Multi-region
 
-Each Region is an independent deployment with its own state (`aws-waf-security/<region>/terraform.tfstate`), its own Web ACL, Firehose stream, and protected environment. There is no single apply that spans Regions, and no global (CloudFront) Web ACL. Rationale: ADR-004.
+Each Region is an independent deployment with its own state (`aws-waf-security/<scope>/<region>/terraform.tfstate`), its own Web ACL, Firehose stream, and protected environment. There is no single apply that spans Regions. Rationale: ADR-004.
+
+## Global (CloudFront) scope
+
+`waf_scope = "CLOUDFRONT"` creates a global Web ACL in `us-east-1` with no association resource. The distribution owner sets `web_acl_id` to the `web_acl_arn` output. The module rejects a non-`us-east-1` Region and a non-null `alb_arn` for this scope. Rationale: ADR-006.
 
 ## Per-region policy
 
-`env/<region>.tfvars` is versioned and is the reviewed policy for that Region: `enabled_rules` selects which rules exist, `rule_actions` sets `COUNT`/`BLOCK` per rule, and the thresholds/lists live there too. Both pipelines load it with `-var-file` and fail when it is missing. Secrets stay in pipeline variables. Rationale: ADR-005.
+`env/<scope>/<region>.tfvars` is versioned and is the reviewed policy for that target: `enabled_rules` selects which rules exist, `rule_actions` sets `COUNT`/`BLOCK` per rule, and the thresholds/lists live there too. Both pipelines load it with `-var-file` and fail when it is missing. Secrets stay in pipeline variables. Rationale: ADR-005.
 
 ## Context-layer layout
 

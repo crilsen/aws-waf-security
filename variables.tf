@@ -1,21 +1,39 @@
+variable "waf_scope" {
+  description = "Scope of the Web ACL: REGIONAL protects an ALB in aws_region; CLOUDFRONT is the global scope used by CloudFront distributions and must be deployed in us-east-1."
+  type        = string
+  default     = "REGIONAL"
+
+  validation {
+    condition     = contains(["REGIONAL", "CLOUDFRONT"], var.waf_scope)
+    error_message = "waf_scope must be REGIONAL or CLOUDFRONT."
+  }
+}
+
 variable "aws_region" {
-  description = "AWS Region for the Regional Web ACL, the Firehose delivery stream, and the existing ALB. All of them must be in this Region."
+  description = "AWS Region for the Web ACL, the Firehose delivery stream, and the existing ALB. CLOUDFRONT scope requires us-east-1."
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+$", var.aws_region))
-    error_message = "aws_region must be a valid AWS Region identifier, for example eu-west-1."
+    condition = (
+      can(regex("^[a-z]{2}(-[a-z]+)+-[0-9]+$", var.aws_region)) &&
+      (var.waf_scope != "CLOUDFRONT" || var.aws_region == "us-east-1")
+    )
+    error_message = "aws_region must be a valid AWS Region identifier, for example eu-west-1. A CLOUDFRONT Web ACL must be deployed in us-east-1."
   }
 }
 
 variable "alb_arn" {
-  description = "ARN of the existing Application Load Balancer to protect. Required on purpose: this project never discovers, lists, or selects an ALB."
+  description = "ARN of the existing Application Load Balancer to protect. Required when waf_scope = REGIONAL and must be omitted (null) for CLOUDFRONT, where the distribution owner attaches the Web ACL through its web_acl_id."
   type        = string
-  nullable    = false
+  default     = null
 
   validation {
-    condition     = can(regex("^arn:aws[a-zA-Z-]*:elasticloadbalancing:[a-z0-9-]+:[0-9]{12}:loadbalancer/app/.+$", var.alb_arn))
-    error_message = "alb_arn must be an Application Load Balancer ARN, for example arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/example/0123456789abcdef."
+    condition = (
+      var.waf_scope == "CLOUDFRONT"
+      ? var.alb_arn == null
+      : var.alb_arn != null && can(regex("^arn:aws[a-zA-Z-]*:elasticloadbalancing:[a-z0-9-]+:[0-9]{12}:loadbalancer/app/.+$", var.alb_arn))
+    )
+    error_message = "alb_arn is required for REGIONAL scope and must be an Application Load Balancer ARN; for CLOUDFRONT scope it must be omitted."
   }
 }
 

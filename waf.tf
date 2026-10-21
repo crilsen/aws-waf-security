@@ -1,7 +1,7 @@
 resource "aws_wafv2_web_acl" "this" {
   name        = "${var.name_prefix}-web-acl"
-  description = "Regional Web ACL protecting the existing ALB supplied by the operator."
-  scope       = "REGIONAL"
+  description = "AWS WAFv2 ${var.waf_scope} Web ACL managed by Terraform."
+  scope       = var.waf_scope
 
   default_action {
     dynamic "allow" {
@@ -123,7 +123,12 @@ resource "aws_wafv2_web_acl" "this" {
   tags = local.tags
 }
 
+# Only a REGIONAL Web ACL can be associated with an ALB through this resource.
+# A CLOUDFRONT Web ACL has no standalone association: its owner sets web_acl_id
+# on the distribution, which keeps this project from modifying other resources.
 resource "aws_wafv2_web_acl_association" "alb" {
+  count = var.waf_scope == "REGIONAL" ? 1 : 0
+
   resource_arn = var.alb_arn
   web_acl_arn  = aws_wafv2_web_acl.this.arn
 

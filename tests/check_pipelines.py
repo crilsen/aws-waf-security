@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Static checks for the pipeline definitions.
+"""Static checks for the pipeline definitions and per-target policy files.
 
 These checks are deliberately static: neither GitLab nor Jenkins is available
-in this repository, so they assert the properties that matter for the approval
-gate instead of pretending to run the pipelines.
+here, so they assert the properties that matter for the approval gate instead
+of pretending to run the pipelines.
 
-Checks are split in two:
+Checks:
   * .gitlab-ci.yml is parsed as YAML and inspected structurally.
-  * Jenkinsfile is inspected textually (no groovy/Jenkins parser here).
+  * Jenkinsfile is inspected textually (no groovy/Jenkins parser available).
+  * helper scripts are inspected for the behaviour the pipelines rely on.
+  * every env/<scope>/<region>.tfvars file sets the expected keys.
 
 Exit code is 0 only when every check passes.
 """
@@ -26,6 +28,15 @@ failures: list[str] = []
 def check(condition: bool, message: str) -> None:
     if not condition:
         failures.append(message)
+
+
+def code_only(text: str) -> str:
+    """Drop full-line comments so assertions target executable lines only."""
+    return "\n".join(
+        line
+        for line in text.splitlines()
+        if not line.strip().startswith(("#", "//"))
+    )
 
 
 def check_gitlab_ci() -> None:
@@ -63,30 +74,11 @@ def check_gitlab_ci() -> None:
     plan_script = " ".join(jobs.get("plan", {}).get("script", []))
     apply_script = " ".join(jobs.get("apply", {}).get("script", []))
 
-    check("terraform plan -input=false" in plan_script, "gitlab: plan job must run terraform plan")
+    check("./scripts/tf-plan.sh" in plan_script, "gitlab: plan must use scripts/tf-plan.sh")
+    check("./scripts/tf-apply.sh" in apply_script, "gitlab: apply must use scripts/tf-apply.sh")
     check(
         "terraform plan" not in apply_script,
         "gitlab: apply must never generate a new plan",
-    )
-    check(
-        "terraform apply -input=false" in apply_script and "${PLAN_FILE}" in apply_script,
-        "gitlab: apply must apply the stored plan file",
-    )
-    check(
-        "sha256sum -c" in apply_script,
-        "gitlab: apply must verify the plan checksum before applying",
-    )
-    check(
-        '-var-file="env/${AWS_REGION}.tfvars"' in plan_script,
-        "gitlab: plan must load the per-region policy file",
-    )
-    check(
-        'test -f "env/${AWS_REGION}.tfvars"' in plan_script,
-        "gitlab: plan must fail fast when the per-region policy file is missing",
-    )
-    check(
-        "-var=\"rule_mode=" not in plan_script,
-        "gitlab: rule policy must come from the reviewed per-region file, not a pipeline variable",
     )
     check(
         "id_tokens" in jobs.get("plan", {}) and "id_tokens" in jobs.get("apply", {}),
@@ -114,6 +106,13 @@ def check_gitlab_ci() -> None:
         "gitlab: plan job must publish the plan file and its checksum",
     )
 
+    for job in ("approval", "apply"):
+        environment = str(jobs.get(job, {}).get("environment", {}).get("name", ""))
+        check(
+            "${WAF_SCOPE}" in environment and "${AWS_REGION}" in environment,
+            f"gitlab: {job} environment must be scoped by scope and Region",
+        )
+
 
 def check_jenkinsfile() -> None:
     text = (ROOT / "Jenkinsfile").read_text()
@@ -123,57 +122,70 @@ def check_jenkinsfile() -> None:
     order = ["stage('Validate')", "stage('Plan')", "stage('Approval')", "stage('Apply')"]
     positions = [text.find(marker) for marker in order]
     check(all(pos >= 0 for pos in positions), "jenkins: missing expected stages")
-    if all(pos >= 0 for pos in positions):
-        check(positions == sorted(positions), "jenkins: stages must be Validate, Plan, Approval, Apply")
+    if not all(pos >= 0 for pos in positions):
+        return
 
-        plan = text[positions[1] : positions[2]]
-        approval = text[positions[2] : positions[3]]
-        apply_stage = text[positions[3] : text.find("post {")]
+    check(positions == sorted(positions), "jenkins: stages must be Validate, Plan, Approval, Apply")
 
-        check("terraform plan -input=false" in plan, "jenkins: Plan must run terraform plan")
-        check("stash " in plan, "jenkins: Plan must stash the plan file")
-        check(
-            '-var-file="env/${AWS_REGION}.tfvars"' in plan,
-            "jenkins: Plan must load the per-region policy file",
-        )
-        check(
-            'test -f "env/${AWS_REGION}.tfvars"' in plan,
-            "jenkins: Plan must fail fast when the per-region policy file is missing",
-        )
-        check(
-            'rule_mode=' not in plan,
-            "jenkins: rule policy must come from the reviewed per-region file",
-        )
-        check("terraform plan" not in apply_stage, "jenkins: Apply must never generate a new plan")
-        check("unstash " in apply_stage, "jenkins: Apply must unstash the plan file")
-        check("terraform apply -input=false" in apply_stage, "jenkins: Apply must apply the stored plan")
-        check(
-            "sha256sum -c" in apply_stage,
-            "jenkins: Apply must verify the plan checksum",
-        )
-        check("input(" in approval, "jenkins: Approval must use a manual input step")
-        check("submitter" in approval, "jenkins: Approval must restrict who can approve")
-        check("timeout(" in approval, "jenkins: Approval must have a timeout")
+    plan = text[positions[1] : positions[2]]
+    approval = text[positions[2] : positions[3]]
+    apply_stage = text[positions[3] : text.find("post {")]
+    apply_code = code_only(apply_stage)
 
-        for name, body in (("Plan", plan), ("Approval", approval), ("Apply", apply_stage)):
-            check("branch 'main'" in body, f"jenkins: {name} must be restricted to the protected branch")
+    check("./scripts/tf-plan.sh" in plan, "jenkins: Plan must use scripts/tf-plan.sh")
+    check("unstash " in apply_stage, "jenkins: Apply must unstash the plan file")
+    check("./scripts/tf-apply.sh" in apply_stage, "jenkins: Apply must use scripts/tf-apply.sh")
+    check("terraform plan" not in apply_code, "jenkins: Apply must never generate a new plan")
+    check("input(" in approval, "jenkins: Approval must use a manual input step")
+    check("submitter" in approval, "jenkins: Approval must restrict who can approve")
+    check("timeout(" in approval, "jenkins: Approval must have a timeout")
+    check("stash " in plan, "jenkins: Plan must stash the plan file")
+
+    for name, body in (("Plan", plan), ("Approval", approval), ("Apply", apply_stage)):
+        check("branch 'main'" in body, f"jenkins: {name} must be restricted to the protected branch")
 
 
-def check_env_files() -> None:
+def check_scripts() -> None:
+    plan = (ROOT / "scripts/tf-plan.sh").read_text()
+    apply = code_only((ROOT / "scripts/tf-apply.sh").read_text())
+    init = (ROOT / "scripts/tf-init.sh").read_text()
+
+    check("-var-file=" in plan, "scripts: tf-plan.sh must load the per-target policy file")
+    check("env/${scope_dir}/${AWS_REGION}.tfvars" in plan, "scripts: policy path must include scope and Region")
+    check('"${WAF_SCOPE}" = "REGIONAL"' in plan, "scripts: ALB must only be required for REGIONAL scope")
+    check('waf_scope=${WAF_SCOPE}' in plan, "scripts: tf-plan.sh must pass the scope to Terraform")
+    check("terraform plan" in plan, "scripts: tf-plan.sh must run terraform plan")
+
+    check("terraform apply" in apply, "scripts: tf-apply.sh must run terraform apply")
+    check("terraform plan" not in apply, "scripts: tf-apply.sh must never run terraform plan")
+    check("sha256sum -c" in apply, "scripts: tf-apply.sh must verify the plan checksum")
+
+    check("backend-config=\"key=" in init, "scripts: tf-init.sh must build the state key")
+    check("CLOUDFRONT" in init, "scripts: tf-init.sh must validate the CloudFront Region")
+
+
+def check_policy_files() -> None:
     env_dir = ROOT / "env"
-    files = sorted(env_dir.glob("*.tfvars")) if env_dir.is_dir() else []
-    check(bool(files), "env: no per-region policy files found")
+    files = sorted(env_dir.glob("*/*.tfvars")) if env_dir.is_dir() else []
+    check(bool(files), "env: no per-target policy files found")
+
+    scopes = {path.parent.name for path in files}
+    check("regional" in scopes, "env: missing env/regional policy files")
+    check("cloudfront" in scopes, "env: missing env/cloudfront policy files")
 
     for path in files:
         text = path.read_text()
-        check("rule_mode" in text, f"env: {path.name} must set rule_mode")
-        check("enabled_rules" in text, f"env: {path.name} must set enabled_rules")
+        check("rule_mode" in text, f"env: {path} must set rule_mode")
+        check("enabled_rules" in text, f"env: {path} must set enabled_rules")
+        if path.parent.name == "cloudfront":
+            check('waf_scope = "CLOUDFRONT"' in text, f"env: {path} must set waf_scope = CLOUDFRONT")
 
 
 def main() -> int:
     check_gitlab_ci()
     check_jenkinsfile()
-    check_env_files()
+    check_scripts()
+    check_policy_files()
 
     if failures:
         print("Pipeline checks FAILED:")
@@ -181,7 +193,7 @@ def main() -> int:
             print(f"  - {failure}")
         return 1
 
-    print("Pipeline checks passed: .gitlab-ci.yml and Jenkinsfile")
+    print("Pipeline checks passed: .gitlab-ci.yml, Jenkinsfile, scripts, env policies")
     return 0
 
 

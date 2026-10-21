@@ -1,6 +1,11 @@
 # AWS WAFv2 Regional Web ACL for an existing ALB
 
-Portfolio project that puts an **AWS WAFv2 Regional Web ACL** in front of an **Application Load Balancer that already exists**, using Terraform. The project never creates or changes the ALB, the VPC, listeners, target groups, the application, or DNS: it receives the ALB ARN and associates a Web ACL with it.
+Portfolio project that puts an **AWS WAFv2 Web ACL** in front of existing entry points using Terraform, across multiple Regions:
+
+- **Regional** scope: protects an **Application Load Balancer that already exists**. The project receives the ALB ARN and associates the Web ACL with it. It never creates or changes the ALB, the VPC, listeners, target groups, the application, or DNS.
+- **CloudFront (global)** scope: creates the global Web ACL in `us-east-1`; the CloudFront distribution owner attaches it through `web_acl_id`.
+
+Each target (scope + Region) is an independent deployment with its own state, policy file, plan, and approval, so one Region can run different rules from another.
 
 The Web ACL ships with AWS Managed Rules, a per-IP rate limit, optional IP allow/deny lists, optional geographic blocking, CloudWatch metrics, sampled requests, and logging to S3 through Amazon Data Firehose.
 
@@ -43,7 +48,7 @@ Every rule starts in `COUNT` mode. Blocking is a deliberate, reviewed step that 
                               │  ARN supplied as a variable
                               ▼
               ┌────────────────────────────────────┐
-              │ AWS WAFv2 Regional Web ACL         │
+              │ WAFv2 Web ACL                      │
               │                                    │
               │  0  IP allow list      allow       │
               │  5  IP deny list       COUNT/BLOCK │
@@ -67,6 +72,15 @@ Every rule starts in `COUNT` mode. Blocking is a deliberate, reviewed step that 
                 CloudWatch dashboards / alarms
 ```
 
+The same module also runs with `waf_scope = "CLOUDFRONT"`, deployed in `us-east-1`:
+
+```text
+viewers → CloudFront distribution → (web_acl_id) → global Web ACL → origin
+                                        ▲
+                                        └── attached by the distribution owner,
+                                            not by this project
+```
+
 Evaluation stops at the first terminating action, in ascending priority order. The order is explained in [Operating the rules](#operating-the-rules) and recorded in [`.ai/DECISIONS.md`](.ai/DECISIONS.md) (ADR-003).
 
 ## Prerequisites
@@ -76,7 +90,8 @@ Evaluation stops at the first terminating action, in ascending priority order. T
 | Terraform | >= 1.10 (S3 native state locking). This repository was validated with 1.16.1. |
 | AWS provider | `hashicorp/aws ~> 5.60` (resolved to 5.100.0 during validation). |
 | AWS credentials | Temporary credentials from an assumed role. No static access keys anywhere. |
-| Existing ALB | The ARN must be known in advance and be in `aws_region`. |
+| Existing ALB | Required only for `REGIONAL`; the ARN must be known in advance and be in `aws_region`. |
+| Existing CloudFront distribution | Optional; for `CLOUDFRONT` scope the distribution owner sets `web_acl_id`. The ACL is always created in `us-east-1`. |
 | Log bucket | Existing S3 bucket in `aws_region` for WAF logs (see below). |
 | State bucket | Existing S3 bucket for Terraform state (see below). |
 | Local tooling | `aws-cli` v2, `jq` (optional), `sha256sum`. |
@@ -144,14 +159,18 @@ The backend uses `use_lockfile = true`, so no DynamoDB table is needed: the lock
 ├── outputs.tf               Web ACL, association, Firehose, rule summary
 ├── scripts/assume-role.sh   STS web identity (GitLab) or role assumption (Jenkins)
 ├── scripts/require-env.sh   fails fast on missing pipeline variables
+├── scripts/tf-init.sh       backend init, state key per scope and Region
+├── scripts/tf-plan.sh       plan from the target's policy file + checksum
+├── scripts/tf-apply.sh      applies the stored plan, never replans
 ├── scripts/validate.sh      runs every local validation below
 ├── tests/check_pipelines.py static assertions for both pipelines
 ├── .gitlab-ci.yml           validate -> plan -> approval -> apply
 ├── Jenkinsfile              validate -> plan -> approval -> apply
 ├── docs/iam/                deployer policy, bucket policy, GitLab trust policy
-├── env/<region>.tfvars      reviewed WAF policy per Region (no secrets)
+├── env/regional/*.tfvars    reviewed WAF policy per Region (ALB targets)
+├── env/cloudfront/*.tfvars  reviewed WAF policy for the global target
 ├── terraform.tfvars.example fictional values
-└── backend.hcl.example      backend keys, state key scoped by Region
+└── backend.hcl.example      backend keys, state key scoped by scope and Region
 ```
 
 One rule per file is intentional: a rule promotion to `BLOCK`, or a false-positive override, changes exactly one file and is easy to review. Terraform only reads top-level `.tf` files, so rule files live at the repository root and are aggregated by `waf_rules.tf`.
@@ -162,8 +181,9 @@ Values that must be supplied explicitly have no default.
 
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
-| `aws_region` | string | required | Region of the ALB, Web ACL, Firehose stream, and log bucket. |
-| `alb_arn` | string | required | ARN of the existing ALB. Format and Region are validated. |
+| `waf_scope` | string | `REGIONAL` | `REGIONAL` (ALB in `aws_region`) or `CLOUDFRONT` (global, requires `us-east-1`). |
+| `aws_region` | string | required | Region of the Web ACL, Firehose stream, log bucket, and ALB. `CLOUDFRONT` requires `us-east-1`. |
+| `alb_arn` | string | null | ARN of the existing ALB. Required for `REGIONAL`, must be omitted for `CLOUDFRONT`. |
 | `log_bucket_name` | string | required | Existing bucket for WAF logs. |
 | `name_prefix` | string | `waf-alb` | Prefix for ACL, rules, IP sets, Firehose, and log group. |
 | `default_action` | string | `allow` | Action when no rule matches: `allow` or `block`. |
@@ -232,7 +252,7 @@ The agent's instance profile (or another ambient credential source) may call `st
 ```bash
 # 1. Configure inputs
 cp terraform.tfvars.example terraform.tfvars   # fictional values, git-ignored
-cp env/eu-west-1.tfvars env/<your-region>.tfvars  # reviewed policy, versioned
+cp env/regional/eu-west-1.tfvars env/regional/<your-region>.tfvars  # reviewed policy, versioned
 
 # 2. Initialize with the operator's backend
 cp backend.hcl.example backend.hcl
@@ -241,8 +261,8 @@ terraform init -backend-config=backend.hcl
 # 3. Review
 terraform fmt -recursive
 terraform validate
-terraform console -var-file="env/<your-region>.tfvars"   # sanity-check the policy
-terraform plan -var-file="env/<your-region>.tfvars" -out=tfplan.bin
+terraform console -var-file="env/regional/<your-region>.tfvars"   # sanity-check the policy
+terraform plan -var-file="env/regional/<your-region>.tfvars" -out=tfplan.bin
 
 # 4. Apply only after reviewing the plan
 terraform apply tfplan.bin
@@ -267,8 +287,8 @@ Use a dedicated, short-lived role for local runs. Do not keep long-lived credent
 Protection settings to configure in GitLab:
 
 - `main` is the protected default branch, with no direct pushes and at least one approval on merge requests;
-- CI/CD variables are **protected**: `AWS_REGION`, `AWS_ROLE_ARN`, `ALB_ARN`, `TF_STATE_BUCKET`, `TF_LOG_BUCKET`, and optionally `TF_STATE_REGION`;
-- `env/<region>.tfvars` exists and is reviewed: it is the WAF policy for that Region, and the plan job fails when it is missing;
+- CI/CD variables are **protected**: `AWS_REGION`, `WAF_SCOPE`, `AWS_ROLE_ARN`, `TF_STATE_BUCKET`, `TF_LOG_BUCKET`, `ALB_ARN` (empty for `CLOUDFRONT`), and optionally `TF_STATE_REGION`;
+- `env/<scope>/<region>.tfvars` exists and is reviewed: it is the WAF policy for that target, and the plan job fails when it is missing;
 - the `production/<region>` environment has protected environments enabled and requires approval;
 - runners are trusted, since they handle credentials and the plan artifact;
 - the plan artifact expires in one day and is restricted to maintainers.
@@ -283,8 +303,9 @@ Parameters:
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `AWS_REGION` | `eu-west-1` | Region and state-key selector. |
-| `ALB_ARN` | empty | Existing ALB to protect (required). |
+| `AWS_REGION` | `eu-west-1` | Target Region and state-key selector. |
+| `WAF_SCOPE` | `REGIONAL` | `REGIONAL` or `CLOUDFRONT`; selects the policy directory and the state key. |
+| `ALB_ARN` | empty | Existing ALB to protect. Required for `REGIONAL`, ignored for `CLOUDFRONT`. |
 | `LOG_BUCKET` | empty | Existing bucket for WAF logs (required). |
 | `TF_STATE_BUCKET` | empty | Existing bucket for state (required). |
 | `TF_STATE_REGION` | empty | Defaults to `AWS_REGION`. |
@@ -353,16 +374,16 @@ common_rule_set_rule_overrides = {
 Promotion is per rule and per Region, which is the point of `rule_actions`:
 
 ```hcl
-# env/eu-west-1.tfvars
+# env/regional/eu-west-1.tfvars
 rule_mode   = "COUNT"                        # everything else stays observable
 rule_actions = { rate_limit = "BLOCK" }      # only rate limiting blocks here
 ```
 
 1. Confirm the rule has been matching only traffic you want to block for a full traffic cycle, including peak hours.
-2. Add or change the entry in `rule_actions` inside `env/<region>.tfvars` and open a merge request.
+2. Add or change the entry in `rule_actions` inside `env/<scope>/<region>.tfvars` and open a merge request.
 3. Run the pipeline: a new plan is produced, a human reviews it, and only then is it applied.
 4. Watch HTTP 5xx/4xx rates and WAF `BlockedRequests` metrics immediately after the change.
-5. Other Regions are untouched: they keep their own `env/<region>.tfvars`.
+5. Other Regions are untouched: they keep their own `env/<scope>/<region>.tfvars`.
 
 Rollback is the same procedure in reverse: remove the entry (or set it back to `COUNT`), plan, approve, apply. Do not "fix" blocking with `default_action` changes.
 
@@ -381,41 +402,65 @@ Logging every request has a cost. If the volume is high, lower the buffering fre
 
 ## Multi-region
 
-Each Region is an independent deployment with its own reviewed policy:
+Each target (scope + Region) is an independent deployment with its own reviewed policy:
 
 ```bash
-terraform init -backend-config=backend.hcl                 # key includes the region
-terraform plan -var-file="env/eu-west-1.tfvars" \
+terraform init -backend-config=backend.hcl                 # key includes scope and region
+terraform plan -var-file="env/regional/eu-west-1.tfvars" \
   -var="aws_region=eu-west-1" -var="alb_arn=..." ...
 ```
 
-- one Web ACL, association, and Firehose stream per Region;
-- one state object per Region (`aws-waf-security/<region>/terraform.tfstate`) and therefore one lock per Region;
-- one protected environment per Region in GitLab (`production/<region>`) and one pipeline run per Region in Jenkins;
-- approvals are per Region: a plan for `eu-west-1` cannot apply to `us-east-1`.
+- one Web ACL, association (Regional only), and Firehose stream per target;
+- one state object per target (`aws-waf-security/<scope>/<region>/terraform.tfstate`) and therefore one lock per target;
+- one protected environment per target in GitLab (`production/<scope>-<region>`) and one pipeline run per target in Jenkins;
+- approvals are per target: a plan for `eu-west-1` cannot apply to `us-east-1` or to the CloudFront ACL.
 
-### Per-region policy
+### Per-target policy
 
-`env/<region>.tfvars` is the policy file for one Region and is versioned on purpose. It can differ freely between Regions:
+`env/<scope>/<region>.tfvars` is the policy file for one target and is versioned on purpose. It can differ freely between targets:
 
 | File | What it controls |
 | --- | --- |
-| `env/eu-west-1.tfvars` | all six rules enabled, geo blocking for `KP`, 2000 req/IP |
-| `env/us-east-1.tfvars` | geo rule absent, allow list for `192.0.2.0/24`, 1000 req/IP, `SizeRestrictions_BODY` overridden to `COUNT` |
+| `env/regional/eu-west-1.tfvars` | all six rules enabled, geo blocking for `KP`, 2000 req/IP |
+| `env/regional/us-east-1.tfvars` | geo rule absent, allow list for `192.0.2.0/24`, 1000 req/IP, `SizeRestrictions_BODY` overridden to `COUNT` |
+| `env/cloudfront/us-east-1.tfvars` | global scope, all six rules, 5000 req/IP |
 
-Because both pipelines load `-var-file="env/<AWS_REGION>.tfvars"` and fail when the file is missing, adding a Region means adding its policy file, not editing code:
+Because both pipelines load `-var-file="env/<scope>/<AWS_REGION>.tfvars"` and fail when the file is missing, adding a Region means adding its policy file, not editing code:
 
 ```bash
-cp env/eu-west-1.tfvars env/ap-southeast-2.tfvars
+cp env/regional/eu-west-1.tfvars env/regional/ap-southeast-2.tfvars
 terraform init -backend-config=backend.hcl
-terraform plan -var-file="env/ap-southeast-2.tfvars" -var="aws_region=ap-southeast-2" ...
+terraform plan -var-file="env/regional/ap-southeast-2.tfvars" -var="aws_region=ap-southeast-2" ...
 ```
 
 Secrets never belong in these files. The ALB ARN, the log bucket, the state bucket, and the role ARN stay as protected pipeline variables.
 
-Validation: `terraform validate` does not evaluate variable values, so run `terraform console -var-file="env/<region>.tfvars"` (or `terraform plan`) after editing a policy file. The repository was checked this way for both included Regions.
+Validation: `terraform validate` does not evaluate variable values, so run `terraform console -var-file="env/<scope>/<region>.tfvars"` (or `terraform plan`) after editing a policy file. The repository was checked this way for the Regional and CloudFront targets.
 
-Global WAF (CloudFront) and multi-account are out of scope.
+### CloudFront (global) target
+
+A CloudFront ACL is global but must be created in `us-east-1`, so that is the only valid Region for `waf_scope = "CLOUDFRONT"` (validated). Firehose and the log bucket must also be in `us-east-1`, because Firehose cannot deliver across Regions.
+
+There is no standalone CloudFront association resource. The project therefore creates and outputs the ACL, and the distribution owner attaches it in the stack that manages the distribution:
+
+```hcl
+resource "aws_cloudfront_distribution" "this" {
+  # ... existing distribution configuration ...
+  web_acl_id = "<web_acl_arn output>"
+}
+```
+
+Run the target with:
+
+```bash
+WAF_SCOPE=CLOUDFRONT AWS_REGION=us-east-1
+terraform plan -var-file="env/cloudfront/us-east-1.tfvars" \
+  -var="waf_scope=CLOUDFRONT" -var="aws_region=us-east-1" ...
+```
+
+`alb_arn` must be omitted for this scope; the module rejects it, just as it rejects a non-`us-east-1` Region.
+
+Multi-account remains out of scope.
 
 ## Troubleshooting
 
@@ -424,6 +469,9 @@ Global WAF (CloudFront) and multi-account are out of scope.
 | `Error: reading S3 Bucket (...) : NotFound` during plan | `log_bucket_name` typo, wrong account, or missing `s3:ListBucket` | Check the name and the deployment role's read permission. |
 | `log_bucket_name is in Region 'x' but aws_region is 'y'` | Bucket and Web ACL in different Regions | Use a bucket in `aws_region`. |
 | `alb_arn is in Region 'x' but aws_region is 'y'` | ALB and Web ACL in different Regions | Set `aws_region` to the ALB's Region. |
+| `A CLOUDFRONT Web ACL must be deployed in us-east-1` | `WAF_SCOPE=CLOUDFRONT` with another Region | Use `AWS_REGION=us-east-1`; CloudFront only accepts the global ACL there. |
+| `alb_arn is required for REGIONAL scope` / `must be omitted` for CLOUDFRONT | Wrong variable for the scope | Supply the ALB ARN only for `REGIONAL`; leave it unset for `CLOUDFRONT`. |
+| CloudFront traffic is not filtered after apply | The distribution was not pointed at the new ACL | Set `web_acl_id` to the `web_acl_arn` output in the stack that owns the distribution. |
 | Legitimate users receive 403 | A rule is in `BLOCK` and matches real traffic | Find the rule in sampled requests, set a per-rule `COUNT` override, plan, approve, apply. |
 | Nothing is blocked | `rule_mode = "COUNT"` | Expected until you promote to `BLOCK`; check the metrics first. |
 | Requests are still served and WAF metrics are flat | Web ACL associated with another ARN | Check `associated_alb_arn` output and the WAF console association. |
@@ -461,9 +509,9 @@ Cost controls: keep the optional rules disabled when unused, increase the Fireho
 terraform destroy -var="aws_region=..." -var="alb_arn=..." -var="log_bucket_name=..." ...
 ```
 
-What is removed: the Web ACL and its association (traffic stops being filtered by this ACL, the ALB is untouched), the Firehose stream, the Firehose role and policy, and the error log group. Optional IP sets are removed too.
+What is removed: the Web ACL and, for `REGIONAL`, its association (traffic stops being filtered by this ACL, the ALB is untouched); for `CLOUDFRONT`, remove `web_acl_id` from the distribution first, otherwise the destroy fails because the ACL is still in use. Also removed: the Firehose stream, the Firehose role and policy, and the error log group. Optional IP sets are removed too.
 
-What is kept: the ALB, the log bucket with its objects and policy, the state bucket, and the state history. Delete those deliberately, outside Terraform, after confirming no audit obligation requires the logs.
+What is kept: the ALB, the CloudFront distribution, the log bucket with its objects and policy, the state bucket, and the state history. Delete those deliberately, outside Terraform, after confirming no audit obligation requires the logs.
 
 Run cleanup from the same Region/state pair that created the resources. Do not delete the state bucket before the destroy completes.
 
@@ -473,7 +521,7 @@ Run cleanup from the same Region/state pair that created the resources. Do not d
 - **Fixed rule catalog.** The six rules are the supported set; `enabled_rules` and `rule_actions` change which of them exist and how they act per Region, but a new kind of statement (custom match, header rule, trusted IP group) is a code change.
 - **IPv4 only.** IP sets use `IPV4`; IPv6 CIDRs are rejected by validation.
 - **Geo blocking only.** `geo_restricted_countries` blocks the listed countries. An "allow only these countries" policy is not expressible without listing every other country, so it is out of scope.
-- **No global WAF.** CloudFront-scoped Web ACLs are out of scope; this project is Regional only.
+- **CloudFront attachment is manual.** The project creates the global Web ACL and outputs its ARN; the distribution owner sets `web_acl_id`. Managing the distribution is out of scope, by design.
 - **No Bot Control, CAPTCHA, or challenge actions.** Only `allow`, `block`, and `count` are used.
 - **No Athena/Glue.** Logs are plain GZIP JSON in S3; query tooling is the operator's choice.
 - **No logging filter.** Every request is logged, which is simple to audit but not the cheapest option; add a `logging_filter` if volume demands it.
@@ -495,6 +543,6 @@ Everything below is reproducible with `./scripts/validate.sh`, which never touch
 - `.gitlab-ci.yml` parsed as YAML; stages, jobs, artifact, checksum step, OIDC tokens, branch restrictions, and the blocking manual approval asserted by `tests/check_pipelines.py`.
 - `Jenkinsfile` checked structurally: stage order, `stash`/`unstash` around the plan file, `apply` never calls `terraform plan`, approval restricted by `submitter` and a timeout, protected branch on Plan/Approval/Apply.
 - `shellcheck` on `scripts/*.sh`.
-- Per-region policy files resolved with `terraform console -var-file=env/<region>.tfvars` for both included Regions, confirming different rule sets and actions (`eu-west-1`: 4 rules including geo; `us-east-1`: allow list, no geo, different thresholds). This check caught a real defect: a tuple-typed country list made `concat` fail at plan time, fixed by forcing `tolist` in `local.statement_defaults`.
+- Per-target policy files resolved with `terraform console -var-file=...` for all three included targets: `regional/eu-west-1`, `regional/us-east-1`, and `cloudfront/us-east-1`. Confirmed different rule sets and actions per target, and confirmed that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`. This check also caught a real defect: a tuple-typed country list made `concat` fail at plan time, fixed by forcing `tolist` in `local.statement_defaults`.
 
 Not validated: `terraform plan`, `terraform apply`, and any AWS interaction. Those require an account, an existing ALB, and both buckets, and are intentionally out of scope for this repository.

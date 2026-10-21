@@ -40,6 +40,7 @@ locals {
 
   # Region encoded in the ALB ARN. The format itself is validated on the
   # variable; this value is used to prove Region consistency at plan time.
+  # Empty for CLOUDFRONT scope, where no ALB is involved.
   alb_region = try(regex("^arn:aws[a-zA-Z-]*:elasticloadbalancing:([a-z0-9-]+):", var.alb_arn)[0], "")
 
   log_bucket_arn = "arn:${data.aws_partition.current.partition}:s3:::${var.log_bucket_name}"

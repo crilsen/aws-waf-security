@@ -7,6 +7,10 @@
 #   terraform init -backend-config=backend.hcl
 #   terraform plan -out=tfplan
 
+# Scope of this deployment: REGIONAL protects an ALB in aws_region; CLOUDFRONT
+# creates the global ACL (us-east-1 only) to be attached by the distribution.
+waf_scope = "REGIONAL"
+
 # Region of the existing ALB. The Web ACL, the Firehose stream, and the log
 # bucket must all be in this Region.
 aws_region = "eu-west-1"

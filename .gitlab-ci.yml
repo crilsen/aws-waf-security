@@ -8,20 +8,26 @@
 #             freshly generated one
 #
 # Required CI/CD variables (mark them protected; mask the sensitive ones):
-#   AWS_REGION       Region of the ALB and of this deployment
+#   AWS_REGION       target Region (us-east-1 for CLOUDFRONT)
+#   WAF_SCOPE        REGIONAL (ALB) or CLOUDFRONT
 #   AWS_ROLE_ARN     IAM role assumed through GitLab OIDC
 #   TF_STATE_BUCKET  existing bucket that stores Terraform state
 #   TF_LOG_BUCKET    existing bucket that receives the WAF logs
-#   ALB_ARN          ARN of the existing ALB (must be in AWS_REGION)
+#   ALB_ARN          ARN of the existing ALB; required only for REGIONAL
 # Optional:
 #   TF_STATE_REGION  Region of the state bucket, defaults to AWS_REGION
 #
 # The WAF policy itself (enabled rules, per-rule COUNT/BLOCK, rate limit, IP and
-# geo lists, managed-rule overrides) comes from env/<AWS_REGION>.tfvars, which
-# is reviewed and versioned per Region. The file must exist before plan runs.
+# geo lists, managed-rule overrides) comes from the policy file for the target:
 #
-# Each Region deploys independently: the state key includes AWS_REGION and the
-# environment is production/<region>, so approvals are per Region.
+#   env/regional/<AWS_REGION>.tfvars
+#   env/cloudfront/<AWS_REGION>.tfvars
+#
+# Those files are reviewed and versioned per region. The plan job fails when the
+# expected file is missing.
+#
+# Targets deploy independently: the state key includes scope and Region, and the
+# environment is production/<scope>-<region>, so approvals are per target.
 
 stages:
   - validate
@@ -36,8 +42,6 @@ variables:
   PLAN_FILE: "tfplan.bin"
   PLAN_TEXT: "tfplan.txt"
   PLAN_CHECKSUM: "tfplan.sha256"
-  # One independent state per Region.
-  TF_STATE_KEY: "aws-waf-security/${AWS_REGION}/terraform.tfstate"
 
 default:
   image:
@@ -76,30 +80,11 @@ plan:
   id_tokens:
     AWS_ID_TOKEN:
       aud: "https://gitlab.com"
-  resource_group: "waf-plan-${AWS_REGION}"
+  resource_group: "waf-plan-${WAF_SCOPE}-${AWS_REGION}"
   script:
-    - ./scripts/require-env.sh AWS_REGION ALB_ARN TF_LOG_BUCKET TF_STATE_BUCKET AWS_ROLE_ARN
-    - test -f "env/${AWS_REGION}.tfvars" || { echo "Missing env/${AWS_REGION}.tfvars"; exit 1; }
-    - TF_STATE_REGION="${TF_STATE_REGION:-${AWS_REGION}}"
-    - export TF_STATE_REGION
-    - eval "$(./scripts/assume-role.sh)"
-    - >-
-      terraform init -input=false
-      -backend-config="bucket=${TF_STATE_BUCKET}"
-      -backend-config="key=${TF_STATE_KEY}"
-      -backend-config="region=${TF_STATE_REGION}"
-      -backend-config="encrypt=true"
-    - >-
-      terraform plan -input=false -lock-timeout=5m
-      -out="${PLAN_FILE}"
-      -var="aws_region=${AWS_REGION}"
-      -var="alb_arn=${ALB_ARN}"
-      -var="log_bucket_name=${TF_LOG_BUCKET}"
-      -var-file="env/${AWS_REGION}.tfvars"
-    - terraform show -no-color "${PLAN_FILE}" > "${PLAN_TEXT}"
-    - sha256sum "${PLAN_FILE}" > "${PLAN_CHECKSUM}"
+    - ./scripts/tf-plan.sh
   artifacts:
-    name: "waf-plan-${AWS_REGION}-${CI_PIPELINE_IID}"
+    name: "waf-plan-${WAF_SCOPE}-${AWS_REGION}-${CI_PIPELINE_IID}"
     paths:
       - "${PLAN_FILE}"
       - "${PLAN_TEXT}"
@@ -116,11 +101,11 @@ plan:
 approval:
   stage: approval
   script:
-    - echo "Plan for ${AWS_REGION} approved by ${GITLAB_USER_LOGIN}."
+    - echo "Plan for ${WAF_SCOPE} ${AWS_REGION} approved by ${GITLAB_USER_LOGIN}."
   when: manual
   allow_failure: false
   environment:
-    name: "production/${AWS_REGION}"
+    name: "production/${WAF_SCOPE}-${AWS_REGION}"
     action: prepare
   needs:
     - job: plan
@@ -137,9 +122,9 @@ apply:
   id_tokens:
     AWS_ID_TOKEN:
       aud: "https://gitlab.com"
-  resource_group: "waf-apply-${AWS_REGION}"
+  resource_group: "waf-apply-${WAF_SCOPE}-${AWS_REGION}"
   environment:
-    name: "production/${AWS_REGION}"
+    name: "production/${WAF_SCOPE}-${AWS_REGION}"
     deployment_tier: production
   needs:
     - job: plan
@@ -147,18 +132,7 @@ apply:
     - job: approval
       artifacts: false
   script:
-    - ./scripts/require-env.sh AWS_REGION TF_STATE_BUCKET AWS_ROLE_ARN
-    - sha256sum -c "${PLAN_CHECKSUM}"
-    - TF_STATE_REGION="${TF_STATE_REGION:-${AWS_REGION}}"
-    - export TF_STATE_REGION
-    - eval "$(./scripts/assume-role.sh)"
-    - >-
-      terraform init -input=false
-      -backend-config="bucket=${TF_STATE_BUCKET}"
-      -backend-config="key=${TF_STATE_KEY}"
-      -backend-config="region=${TF_STATE_REGION}"
-      -backend-config="encrypt=true"
-    # Applies the approved plan file. This never creates a new plan.
-    - terraform apply -input=false "${PLAN_FILE}"
+    # Applies the approved plan file; never creates a new plan.
+    - ./scripts/tf-apply.sh
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

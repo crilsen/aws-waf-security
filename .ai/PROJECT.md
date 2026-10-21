@@ -12,6 +12,7 @@
 In scope:
 
 - Regional Web ACL associated with one ALB whose ARN is supplied explicitly by the operator.
+- Optional global (CloudFront) Web ACL created in `us-east-1`, attached by the distribution owner through `web_acl_id`.
 - The S3 bucket used for WAF logs and the S3 bucket used for Terraform state are supplied by the operator. The project creates neither bucket, and it does not modify their policies.
 - Configurable default action.
 - AWS Managed Rules Common Rule Set and Known Bad Inputs.
@@ -30,7 +31,7 @@ Out of scope:
 - Creating or changing the ALB, VPC, listeners, target groups, application, or DNS.
 - Creating, deleting, or reconfiguring the S3 buckets for logs and state; the operator owns them.
 - Discovering or selecting an ALB automatically: the ARN is a required input.
-- Athena, Glue, CloudFront or global WAF, CAPTCHA, Bot Control, multi-account.
+- Athena, Glue, CAPTCHA, Bot Control, multi-account.
 
 ## Constraints
 
