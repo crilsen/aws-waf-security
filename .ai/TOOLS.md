@@ -34,11 +34,13 @@ Never store secrets in this file.
 
 ## Requires explicit authorization
 
-- Any `terraform plan` that would reach AWS, and every `terraform apply` or `destroy`.
-- Any authenticated AWS CLI call, including read-only ones.
-- Deployment or production changes.
+- Any `terraform plan` that reaches AWS (read-only, but still an external call).
+- Every `terraform apply` or `destroy`, authorized per change and applied from a reviewed plan file.
+- Any authenticated AWS CLI call that mutates resources.
 - Secret changes, destructive state operations, irreversible changes, paid-resource creation, or any external operation with material impact.
 - Pushing to a remote, force push, history rewrite.
+
+A read-only plan and an authorized apply were executed on 2026-10-21 for the `us-east-1` target; see `.ai/VALIDATION.md` and `.ai/HANDOFF.md`.
 
 ## MCP servers and external tools
 

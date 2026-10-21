@@ -94,3 +94,14 @@ Evidence: `concat` failed with `panic in function implementation: inconsistent l
 Pattern / rule: Do not put optional maps inside a shared object shape. Keep per-rule lookups (for example rule name to overrides) in a separate local and resolve them with `lookup()` where they are used. Only a real plan evaluates provider-resolved types; treat `validate` as insufficient.
 Promotion: CONVENTIONS.md
 
+
+### L-006 — Firehose can be subscription-blocked in restricted accounts
+
+Date: 2026-10-21
+Status: active
+Confidence: observed
+Scope: aws-account/firehose
+Context: Applying the stack to a real account.
+Evidence: `CreateDeliveryStream` failed with `SubscriptionRequiredException: The AWS Access Key Id needs a subscription for the service`, while `ListDeliveryStreams` was inconsistent between calls. The Web ACL, association, IP set, IAM role, and CloudWatch log group were created normally.
+Pattern / rule: Treat Firehose as an account capability, not a given. When it is unavailable, set `enable_waf_logging = false` so the Web ACL converges without logging, and record the degraded mode in the target's policy file. The WAF and its association do not depend on logging.
+Promotion: none

@@ -436,6 +436,8 @@ When `enable_waf_logging = true` (default):
 
 Logging every request has a cost. If the volume is high, lower the buffering frequency impact by increasing `firehose_buffering_size` / `firehose_buffering_interval`, and consider adding a WAF logging filter (see [Limitations](#limitations)).
 
+If the account cannot create Firehose delivery streams (`SubscriptionRequiredException: The AWS Access Key Id needs a subscription for the service`), set `enable_waf_logging = false` for that target. The Web ACL and its association still work, but the deployment is in a **degraded mode without logs**; record the reason in the target's `env/<scope>/<region>.tfvars` and re-enable logging when the service becomes available.
+
 ## Multi-region
 
 Each target (scope + Region) is an independent deployment with its own reviewed policy:
@@ -584,4 +586,6 @@ Everything below is reproducible with `./scripts/validate.sh`, which never touch
 - **Real read-only `terraform plan`** (2026-10-21) against an existing ALB in `us-east-1`, with the log bucket `cn-logs-us-east-1` and local state in a scratch copy: `9 to add, 0 to change, 0 to destroy`. A second plan with geo blocking enabled, an IP deny list, and per-rule `BLOCK` on `rate_limit` and `managed_common` produced `10 to add`, `0 to change`, `0 to destroy`, with the expected actions (`allow`, `block`, `none`, `count`). Nothing was applied and no existing resource was modified.
 - That plan exposed a defect `validate` could not catch: `tomap({})` is `map(dynamic)` and does not unify with `map(string)` in `concat`. Managed-rule overrides are now resolved with `lookup()` outside the rule objects.
 
-Not validated: `terraform apply`, a real GitLab or Jenkins run. Those require the operator's role, buckets, and approval.
+Not validated: a real GitLab or Jenkins run. Those require the operator's role, buckets, and approval.
+
+Deployed to a real account in `us-east-1` on 2026-10-21 with `COUNT` rules and default `allow`: the Web ACL was associated with an existing ALB, and `terraform plan` is clean afterwards. Logging is disabled for that target because the account blocks Firehose creation, so the log path remains unvalidated at runtime.

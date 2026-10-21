@@ -43,3 +43,9 @@ common_rule_set_rule_overrides = {
 }
 
 known_bad_inputs_rule_overrides = {}
+
+# Logging is disabled for this target because the account cannot create Firehose
+# delivery streams (CreateDeliveryStream returns SubscriptionRequiredException).
+# Re-enable it once the service is available; the Web ACL and its association do
+# not depend on logging.
+enable_waf_logging = false
