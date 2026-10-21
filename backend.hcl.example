@@ -1,0 +1,26 @@
+# Example remote backend configuration.
+#
+# The bucket already exists and is owned by whoever runs this project. Create
+# this file from the example and keep it out of version control:
+#
+#   cp backend.hcl.example backend.hcl
+#   terraform init -backend-config=backend.hcl
+#
+# The key includes the Region on purpose: each regional deployment owns its own
+# state, so one Region can be planned, approved, and applied without touching
+# the others. Use one backend.hcl per Region (for example
+# backend.eu-west-1.hcl) or pass the key with -backend-config in the pipelines.
+#
+# Bucket requirements (see the README):
+#   - versioning enabled
+#   - default encryption with SSE-S3 or SSE-KMS
+#   - Block Public Access fully enabled
+#   - TLS-only bucket policy
+#   - access limited to the pipeline/deployment role and Terraform operators
+
+bucket = "example-terraform-state-123456789012"
+key    = "aws-waf-security/eu-west-1/terraform.tfstate"
+region = "eu-west-1"
+
+encrypt      = true
+use_lockfile = true

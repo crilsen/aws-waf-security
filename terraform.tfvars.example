@@ -1,0 +1,57 @@
+# Example variable values for local use and review.
+#
+# Every value below is fictional. Copy this file to terraform.tfvars and
+# replace the values with your own. terraform.tfvars is git-ignored on purpose.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   terraform init -backend-config=backend.hcl
+#   terraform plan -out=tfplan
+
+# Region of the existing ALB. The Web ACL, the Firehose stream, and the log
+# bucket must all be in this Region.
+aws_region = "eu-west-1"
+
+# ARN of the ALB that already exists. This project never creates or changes the
+# ALB, and it never discovers an ARN on its own.
+alb_arn = "arn:aws:elasticloadbalancing:eu-west-1:123456789012:loadbalancer/app/example-alb/0123456789abcdef"
+
+# Name of the existing bucket that receives the WAF logs through Firehose.
+# The bucket must already exist in aws_region, with encryption, Block Public
+# Access, and a policy that lets the Firehose role write to it.
+log_bucket_name = "example-waf-logs-123456789012"
+
+# Prefix used for the Web ACL, rules, IP sets, Firehose stream, and log group.
+name_prefix = "waf-alb"
+
+# default_action = "block" only after you are confident in the rules.
+default_action = "allow"
+
+# COUNT only observes and records matches. Promote to BLOCK with a new plan and
+# a new approval in both pipelines.
+rule_mode = "COUNT"
+
+rate_limit                       = 2000
+rate_limit_evaluation_window_sec = 300
+
+# Optional lists. Leave them empty to skip the corresponding rules.
+ip_allow_list            = ["203.0.113.0/24"]
+ip_deny_list             = ["198.51.100.0/24"]
+geo_restricted_countries = ["KP"]
+
+# Per-rule overrides for false-positive tuning. Example:
+#   common_rule_set_rule_overrides = {
+#     SizeRestrictions_BODY = "COUNT"
+#   }
+common_rule_set_rule_overrides     = {}
+known_bad_inputs_rule_overrides    = {}
+
+enable_waf_logging          = true
+waf_log_redacted_headers    = ["authorization", "cookie"]
+firehose_buffering_size     = 5
+firehose_buffering_interval = 300
+firehose_log_retention_days = 14
+
+tags = {
+  Environment = "portfolio"
+  Owner       = "platform-team"
+}

@@ -1,0 +1,160 @@
+# GitLab CI/CD for the AWS WAFv2 Regional Web ACL.
+#
+# Flow:
+#   validate  terraform fmt + validate on every branch and merge request
+#   plan      only on the protected default branch; uploads the plan artifact
+#   approval  blocking manual job; a human must approve after reviewing the plan
+#   apply     only after plan AND approval; applies the stored plan, never a
+#             freshly generated one
+#
+# Required CI/CD variables (mark them protected; mask the sensitive ones):
+#   AWS_REGION       Region of the ALB and of this deployment
+#   AWS_ROLE_ARN     IAM role assumed through GitLab OIDC
+#   TF_STATE_BUCKET  existing bucket that stores Terraform state
+#   TF_LOG_BUCKET    existing bucket that receives the WAF logs
+#   ALB_ARN          ARN of the existing ALB (must be in AWS_REGION)
+# Optional:
+#   TF_STATE_REGION  Region of the state bucket, defaults to AWS_REGION
+#   RULE_MODE        COUNT (default) or BLOCK; BLOCK needs a new plan + approval
+#
+# Each Region deploys independently: the state key includes AWS_REGION and the
+# environment is production/<region>, so approvals are per Region.
+
+stages:
+  - validate
+  - plan
+  - approval
+  - apply
+
+variables:
+  TF_VERSION: "1.16.1"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  PLAN_FILE: "tfplan.bin"
+  PLAN_TEXT: "tfplan.txt"
+  PLAN_CHECKSUM: "tfplan.sha256"
+  # One independent state per Region.
+  TF_STATE_KEY: "aws-waf-security/${AWS_REGION}/terraform.tfstate"
+
+default:
+  image:
+    name: "hashicorp/terraform:${TF_VERSION}"
+    entrypoint: [""]
+  before_script:
+    - apk add --no-cache aws-cli >/dev/null
+
+# ---------------------------------------------------------------------------
+# Validation: every branch and merge request
+# ---------------------------------------------------------------------------
+
+fmt:
+  stage: validate
+  script:
+    - terraform fmt -check -recursive -diff
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+validate:
+  stage: validate
+  script:
+    - terraform init -backend=false -input=false
+    - terraform validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Plan: protected default branch only
+# ---------------------------------------------------------------------------
+
+plan:
+  stage: plan
+  id_tokens:
+    AWS_ID_TOKEN:
+      aud: "https://gitlab.com"
+  resource_group: "waf-plan-${AWS_REGION}"
+  script:
+    - ./scripts/require-env.sh AWS_REGION ALB_ARN TF_LOG_BUCKET TF_STATE_BUCKET AWS_ROLE_ARN
+    - TF_STATE_REGION="${TF_STATE_REGION:-${AWS_REGION}}"
+    - export TF_STATE_REGION
+    - eval "$(./scripts/assume-role.sh)"
+    - >-
+      terraform init -input=false
+      -backend-config="bucket=${TF_STATE_BUCKET}"
+      -backend-config="key=${TF_STATE_KEY}"
+      -backend-config="region=${TF_STATE_REGION}"
+      -backend-config="encrypt=true"
+    - >-
+      terraform plan -input=false -lock-timeout=5m
+      -out="${PLAN_FILE}"
+      -var="aws_region=${AWS_REGION}"
+      -var="alb_arn=${ALB_ARN}"
+      -var="log_bucket_name=${TF_LOG_BUCKET}"
+      -var="rule_mode=${RULE_MODE:-COUNT}"
+    - terraform show -no-color "${PLAN_FILE}" > "${PLAN_TEXT}"
+    - sha256sum "${PLAN_FILE}" > "${PLAN_CHECKSUM}"
+  artifacts:
+    name: "waf-plan-${AWS_REGION}-${CI_PIPELINE_IID}"
+    paths:
+      - "${PLAN_FILE}"
+      - "${PLAN_TEXT}"
+      - "${PLAN_CHECKSUM}"
+    expire_in: 1 day
+    access: maintainer
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Approval: blocking manual gate between plan and apply
+# ---------------------------------------------------------------------------
+
+approval:
+  stage: approval
+  script:
+    - echo "Plan for ${AWS_REGION} approved by ${GITLAB_USER_LOGIN}."
+  when: manual
+  allow_failure: false
+  environment:
+    name: "production/${AWS_REGION}"
+    action: prepare
+  needs:
+    - job: plan
+      artifacts: false
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Apply: same approved plan file, no new plan
+# ---------------------------------------------------------------------------
+
+apply:
+  stage: apply
+  id_tokens:
+    AWS_ID_TOKEN:
+      aud: "https://gitlab.com"
+  resource_group: "waf-apply-${AWS_REGION}"
+  environment:
+    name: "production/${AWS_REGION}"
+    deployment_tier: production
+  needs:
+    - job: plan
+      artifacts: true
+    - job: approval
+      artifacts: false
+  script:
+    - ./scripts/require-env.sh AWS_REGION TF_STATE_BUCKET AWS_ROLE_ARN
+    - sha256sum -c "${PLAN_CHECKSUM}"
+    - TF_STATE_REGION="${TF_STATE_REGION:-${AWS_REGION}}"
+    - export TF_STATE_REGION
+    - eval "$(./scripts/assume-role.sh)"
+    - >-
+      terraform init -input=false
+      -backend-config="bucket=${TF_STATE_BUCKET}"
+      -backend-config="key=${TF_STATE_KEY}"
+      -backend-config="region=${TF_STATE_REGION}"
+      -backend-config="encrypt=true"
+    # Applies the approved plan file. This never creates a new plan.
+    - terraform apply -input=false "${PLAN_FILE}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

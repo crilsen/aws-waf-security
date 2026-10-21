@@ -13,6 +13,10 @@ crash.*.log
 plan.out
 plan.tfplan
 tfplan
+tfplan.bin
+tfplan.txt
+tfplan.sha256
+ci.auto.tfvars
 
 # Local variable files (real ALB ARNs, account IDs, overrides)
 *.tfvars

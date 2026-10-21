@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowGitLabToAssumeDeployRole",
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/gitlab.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "gitlab.com:aud": "https://gitlab.com"
+        },
+        "StringLike": {
+          "gitlab.com:sub": "project_path:<GITLAB_NAMESPACE>/<GITLAB_PROJECT>:ref_type:branch:ref:main"
+        }
+      }
+    }
+  ]
+}
