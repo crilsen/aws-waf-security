@@ -3,6 +3,14 @@
 # Deliberately different from eu-west-1 to show that each Region owns its own
 # rule set, thresholds, and actions in its own reviewed file. This file must
 # never contain secrets: the ALB ARN and the buckets come from the pipeline.
+#
+# Observations
+# - The Firehose delivery stream that receives WAF logs must be named with the
+#   `aws-waf-logs-` prefix (AWS requirement). The module derives it from
+#   name_prefix, scope, and region; there is nothing to configure here.
+# - The log bucket has no naming prerequisite: it only has to exist in this
+#   Region and allow the module's Firehose role to write.
+# - Resource names are immutable; renaming replaces the resources.
 
 rule_mode = "COUNT"
 

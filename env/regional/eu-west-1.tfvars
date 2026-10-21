@@ -1,9 +1,19 @@
 # WAF policy for eu-west-1.
 #
 # This file is versioned on purpose: it is the reviewed policy for one Region
-# and is passed to Terraform as `-var-file="env/<region>.tfvars"`. It must never
-# contain secrets. The ALB ARN, the log bucket, and the state bucket are
-# supplied by the pipeline as protected variables, not from this file.
+# and is passed to Terraform as `-var-file="env/regional/<region>.tfvars"`. It
+# must never contain secrets. The ALB ARN, the log bucket, and the state bucket
+# are supplied by the pipeline as protected variables, not from this file.
+#
+# Observations
+# - The Firehose delivery stream that receives WAF logs must be named with the
+#   `aws-waf-logs-` prefix (AWS requirement). The module derives it as
+#   `aws-waf-logs-<name_prefix>-<scope>-<region>`, so nothing here configures it.
+# - The log bucket has no naming prerequisite: it only has to exist in the same
+#   Region as the Web ACL and allow the module's Firehose role to write.
+# - Resource names are immutable. Changing name_prefix, scope, or region
+#   replaces the Web ACL, IP sets, Firehose stream, and IAM role, so it is a
+#   reviewed plan, never a rename.
 
 # Default action for every rule not listed in rule_actions.
 # COUNT records matches without blocking; promote only through a reviewed plan.

@@ -6,6 +6,14 @@
 #
 # This file is versioned on purpose and must never contain secrets. The log
 # bucket and the state bucket are supplied by the pipeline.
+#
+# Observations
+# - The Firehose delivery stream that receives WAF logs must be named with the
+#   `aws-waf-logs-` prefix (AWS requirement). The module derives it from
+#   name_prefix, scope, and region; there is nothing to configure here.
+# - The log bucket has no naming prerequisite: for this scope it must exist in
+#   us-east-1, because Firehose cannot deliver across Regions.
+# - Resource names are immutable; renaming replaces the resources.
 
 waf_scope = "CLOUDFRONT"
 
