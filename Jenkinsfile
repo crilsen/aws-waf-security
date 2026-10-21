@@ -45,6 +45,8 @@ pipeline {
     PLAN_FILE = 'tfplan.bin'
     PLAN_TEXT = 'tfplan.txt'
     PLAN_CHECKSUM = 'tfplan.sha256'
+    // scripts/tf-plan.sh consumes TF_LOG_BUCKET; this job exposes LOG_BUCKET.
+    TF_LOG_BUCKET = "${params.LOG_BUCKET}"
   }
 
   stages {
