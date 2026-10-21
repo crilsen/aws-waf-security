@@ -20,8 +20,9 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 ## Current State
 
 - Terraform module complete: Web ACL, association, six per-file rules, optional IP sets, Firehose logging to the operator's bucket, least-privilege Firehose IAM, outputs.
-- **Nothing is deployed.** The `us-east-1` stack was destroyed on 2026-10-21 with the operator's authorization: Web ACL, ALB association, and IP set removed; the logging resources had already been removed. The ALB is back to its previous state, with no WAF.
-- State: `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate` still exists with an **empty** state (3 KB), because the state bucket is operator-owned. Delete it only if the deployment history is no longer wanted.
+- **Deployed in `us-east-1`** again through the Jenkins pipeline (build #6): Web ACL `waf-alb-regional-us-east-1-web-acl` associated with `cn-alb-us-east-1`, 4 rules in `COUNT`/`allow`, default `allow`. `terraform plan` is clean.
+- Logging remains disabled for that target (`enable_waf_logging = false`) because the account cannot create Firehose delivery streams.
+- A local Jenkins runs in Docker at <http://localhost:8081> (`admin` / `waf-demo-2026`), job `aws-waf-security`, credential `waf-deploy-role-arn` pointing at the `waf-deploy` role. The reusable setup lives in `~/Projects/jenkins-ci`.
 - `env/regional/us-east-1.tfvars` keeps `enable_waf_logging = false` with the account restriction recorded; flipping it back requires Firehose to be available.
 - Both S3 buckets (logs and state) are operator-provided; the module creates neither.
 - Multi-region = one deployment per Region with a Region-scoped state key (ADR-004).
@@ -75,7 +76,8 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - Real read-only `terraform plan` (2026-10-21, `us-east-1`, local state in a scratch copy): 9 to add / 0 to change / 0 to destroy; geo plus per-rule BLOCK variant: 10 to add / 0 / 0.
 - **Apply** (2026-10-21, authorized, state in `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate`): 9 resources created; association confirmed with `aws wafv2 get-web-acl-for-resource`; then a second apply converged without logging (4 resources destroyed).
 - **Destroy** (2026-10-21, authorized, reviewed destroy plan): 3 resources destroyed (association, Web ACL, IP set). Verified afterwards: no Web ACL for the ALB, no ACL with that name, no Firehose log group, no IAM role.
-- Not validated: WAF logging at runtime (Firehose blocked by the account), real GitLab/Jenkins execution.
+- **Jenkins build #6** (2026-10-21, real pipeline in Docker): Checkout, Validate, Plan, Approval, and Apply all SUCCESS. Association verified with `get-web-acl-for-resource`; local plan returns **No changes**. The first apply attempt failed on `elasticloadbalancing:SetWebACL`, which was missing from the deployer policy and is now fixed.
+- Not validated: WAF logging at runtime (Firehose blocked by the account).
 
 ## Next Actions
 

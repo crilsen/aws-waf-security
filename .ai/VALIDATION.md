@@ -20,6 +20,7 @@ terraform validate                       # configuration validity
 - A real read-only plan was executed on 2026-10-21 against a real account in `us-east-1` (ALB ARN supplied at runtime, log bucket `cn-logs-us-east-1`): 9 resources to add, no changes to existing resources.
 - An authorized apply was executed on 2026-10-21: Web ACL and association created in `us-east-1`, logging disabled because the account blocks Firehose creation (`SubscriptionRequiredException`).
 - An authorized destroy was executed on 2026-10-21 from a reviewed `-destroy` plan: association, Web ACL, and IP set removed; the ALB has no WAF. Only the empty state object remains in the operator's bucket.
+- A real Jenkins pipeline run (build #6, 2026-10-21) completed Validate → Plan → Approval → Apply. The first Apply attempt exposed a missing `elasticloadbalancing:SetWebACL` permission in the deployer policy; fixed and re-applied successfully.
 - Not available: `tflint`, `checkov`, `trivy`. Record as "Not validated — tool not installed" rather than claiming a pass.
 
 ## Pipeline configuration
