@@ -1,0 +1,125 @@
+# Terraform pipeline for the AWS WAFv2 Regional Web ACL.
+#
+# Flow:
+#   validate  fmt, init without backend, validate, pipeline checks, shellcheck
+#   plan      on main only; assumes the role through GitHub OIDC and uploads the
+#             binary plan plus its checksum as a short-lived artifact
+#   apply     on main only; gated by the protected `production` environment, so
+#             a human must approve the deployment before the job starts; it
+#             applies the stored plan and never plans again
+#
+# Repository configuration required:
+#   Variables: AWS_REGION, WAF_SCOPE, ALB_ARN, LOG_BUCKET, TF_STATE_BUCKET
+#   Secret:    AWS_ROLE_ARN
+#   Environment: production, with required reviewers
+#
+# No AWS credentials are stored in the repository: the workflow requests a
+# short-lived OIDC token and assumes a role.
+
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: waf-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  WAF_SCOPE: ${{ vars.WAF_SCOPE || 'REGIONAL' }}
+  ALB_ARN: ${{ vars.ALB_ARN }}
+  LOG_BUCKET: ${{ vars.LOG_BUCKET }}
+  TF_LOG_BUCKET: ${{ vars.LOG_BUCKET }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+  TF_STATE_REGION: ${{ vars.AWS_REGION }}
+  AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (no backend) and validate
+        run: |
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+
+      - name: Pipeline configuration checks
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 tests/check_pipelines.py
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh
+
+  plan:
+    name: Plan
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      # scripts/tf-plan.sh assumes the role (GitHub OIDC), initializes the S3
+      # backend, plans from env/<scope>/<region>.tfvars, and writes
+      # tfplan.bin, tfplan.txt, and tfplan.sha256.
+      - name: Plan
+        run: ./scripts/tf-plan.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: |
+            tfplan.bin
+            tfplan.txt
+            tfplan.sha256
+          retention-days: 1
+          if-no-files-found: error
+
+  apply:
+    name: Apply
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Protected environment: the job does not start until a required reviewer
+    # approves the deployment in the Actions UI.
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+
+      # Verifies the checksum, initializes the backend, and applies the approved
+      # plan file. It never runs terraform plan.
+      - name: Apply approved plan
+        run: ./scripts/tf-apply.sh

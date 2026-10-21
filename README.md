@@ -25,6 +25,7 @@ Every rule starts in `COUNT` mode. Blocking is a deliberate, reviewed step that 
 - [IAM permissions](#iam-permissions)
 - [Local usage](#local-usage)
 - [GitLab CI/CD pipeline](#gitlab-cicd-pipeline)
+- [GitHub Actions pipeline](#github-actions-pipeline)
 - [Jenkins pipeline](#jenkins-pipeline)
 - [Manual approval](#manual-approval)
 - [Operating the rules](#operating-the-rules)
@@ -330,6 +331,47 @@ Protection settings to configure in GitLab:
 - the plan artifact expires in one day and is restricted to maintainers.
 
 The `plan` job also writes `tfplan.txt` (the human-readable plan) for review; the approval decision is based on that file.
+
+## GitHub Actions pipeline
+
+`.github/workflows/terraform.yml` runs three jobs.
+
+| Job | Runs on | What it does |
+| --- | --- | --- |
+| `Validate` | every pull request and push | `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck` |
+| `Plan` | push to `main` only | assumes the role through GitHub OIDC, plans, uploads `tfplan.bin`, `tfplan.txt` and `tfplan.sha256` as a one-day artifact |
+| `Apply` | push to `main` only | gated by the protected `production` environment; downloads the artifact, verifies the checksum, applies the stored plan |
+
+Configuration in the repository:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Variable | `AWS_REGION` | target Region, for example `us-east-1` |
+| Variable | `WAF_SCOPE` | `REGIONAL` or `CLOUDFRONT` |
+| Variable | `ALB_ARN` | existing ALB ARN (required for `REGIONAL`) |
+| Variable | `LOG_BUCKET` | existing log bucket |
+| Variable | `TF_STATE_BUCKET` | existing state bucket |
+| Secret | `AWS_ROLE_ARN` | role assumed through OIDC |
+| Environment | `production` | required reviewers enabled |
+
+The approval happens in the Actions UI: the `Apply` job stays in *Waiting for
+review* until a required reviewer approves it. The job then applies the artifact
+produced by `Plan`; it never creates a new plan.
+
+OIDC requires an IAM OIDC provider for `token.actions.githubusercontent.com` and
+a role whose trust policy restricts the subject to this repository, for example:
+
+```json
+"StringLike": {
+  "token.actions.githubusercontent.com:sub": [
+    "repo:<owner>/<repo>:ref:refs/heads/main",
+    "repo:<owner>/<repo>:environment:production"
+  ]
+}
+```
+
+The two subjects are needed because the `Plan` job runs on the branch ref while
+the `Apply` job runs inside the `production` environment.
 
 ## Jenkins pipeline
 

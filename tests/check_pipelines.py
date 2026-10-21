@@ -16,6 +16,7 @@ Exit code is 0 only when every check passes.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 
@@ -181,11 +182,53 @@ def check_policy_files() -> None:
             check('waf_scope = "CLOUDFRONT"' in text, f"env: {path} must set waf_scope = CLOUDFRONT")
 
 
+def check_github_actions() -> None:
+    path = ROOT / ".github" / "workflows" / "terraform.yml"
+    check(path.is_file(), "github: missing .github/workflows/terraform.yml")
+    if not path.is_file():
+        return
+
+    text = path.read_text()
+    workflow = yaml.safe_load(text)
+    jobs = workflow.get("jobs", {})
+
+    for name in ("validate", "plan", "apply"):
+        check(name in jobs, f"github: missing job '{name}'")
+
+    check(
+        str(workflow.get("permissions", {}).get("id-token")) == "write",
+        "github: workflow must request id-token: write for OIDC",
+    )
+
+    plan = json.dumps(jobs.get("plan", {}))
+    apply_job = jobs.get("apply", {})
+    apply = json.dumps(apply_job)
+
+    check("./scripts/tf-plan.sh" in plan, "github: plan must use scripts/tf-plan.sh")
+    check("upload-artifact" in plan, "github: plan must upload the plan artifact")
+    check("./scripts/tf-apply.sh" in apply, "github: apply must use scripts/tf-apply.sh")
+    check("terraform plan" not in apply, "github: apply must never generate a new plan")
+    check("download-artifact" in apply, "github: apply must consume the plan artifact")
+    check(
+        apply_job.get("environment", {}).get("name") == "production",
+        "github: apply must run in the protected production environment",
+    )
+    check(
+        "AWS_ACCESS_KEY_ID" not in text and "aws-access-key-id" not in text,
+        "github: no static AWS access keys in the workflow",
+    )
+    check(
+        "pull_request" in text and "branches" in text,
+        "github: workflow must run on pull requests and pushes",
+    )
+
+
 def main() -> int:
     check_gitlab_ci()
     check_jenkinsfile()
     check_scripts()
     check_policy_files()
+    check_github_actions()
 
     if failures:
         print("Pipeline checks FAILED:")

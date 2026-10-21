@@ -37,6 +37,26 @@ if [ "${duration}" -lt 900 ] || [ "${duration}" -gt 43200 ]; then
   exit 1
 fi
 
+# GitHub Actions OIDC: exchange the runner's request token for an STS audience
+# token when the workflow grants `id-token: write`.
+if [ -z "${AWS_ID_TOKEN:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+  if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+    echo "ACTIONS_ID_TOKEN_REQUEST_URL is set but ACTIONS_ID_TOKEN_REQUEST_TOKEN is not." >&2
+    exit 1
+  fi
+
+  AWS_ID_TOKEN=$(curl -sS -f \
+    -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+
+  if [ -z "${AWS_ID_TOKEN}" ] || [ "${AWS_ID_TOKEN}" = "null" ]; then
+    echo "Failed to obtain a GitHub OIDC token for STS." >&2
+    exit 1
+  fi
+
+  export AWS_ID_TOKEN
+fi
+
 if [ -n "${AWS_ID_TOKEN:-}" ]; then
   set -- assume-role-with-web-identity \
     --role-arn "${AWS_ROLE_ARN}" \
