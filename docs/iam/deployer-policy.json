@@ -112,6 +112,12 @@
       "Resource": "arn:aws:logs:<AWS_REGION>:<ACCOUNT_ID>:log-group:/aws/kinesisfirehose/<NAME_BASE>-waf-logs*"
     },
     {
+      "Sid": "AssociateWebAclWithAlb",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:SetWebACL",
+      "Resource": "arn:aws:elasticloadbalancing:<AWS_REGION>:<ACCOUNT_ID>:loadbalancer/app/*"
+    },
+    {
       "Sid": "ReadOperatorLogBucket",
       "Effect": "Allow",
       "Action": [
