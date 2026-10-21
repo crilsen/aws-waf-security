@@ -430,8 +430,8 @@ A rule that should not exist in a Region at all is removed from `enabled_rules` 
 When `enable_waf_logging = true` (default):
 
 - WAF sends every request record to Firehose `aws-waf-logs-<name_base>`;
-- Firehose buffers (5 MiB / 300 s by default), compresses with GZIP, and writes to the operator's bucket under `waf-logs/year=.../month=.../day=.../hour=.../`;
-- delivery errors are written to `<bucket>/waf-logs-errors/<error-type>/...` and recorded in the CloudWatch log group `/aws/kinesisfirehose/<name_base>-waf-logs` (14-day retention by default);
+- Firehose buffers (5 MiB / 300 s by default), compresses with GZIP, and writes to the operator's bucket under `waf-logs/<scope>/<region>/year=.../month=.../day=.../hour=.../`, so a bucket shared by several targets never mixes them;
+- delivery errors are written to `<bucket>/waf-logs-errors/<scope>/<region>/<error-type>/...` and recorded in the CloudWatch log group `/aws/kinesisfirehose/<name_base>-waf-logs` (14-day retention by default);
 - the `authorization` and `cookie` headers are redacted by default (`waf_log_redacted_headers`).
 
 Logging every request has a cost. If the volume is high, lower the buffering frequency impact by increasing `firehose_buffering_size` / `firehose_buffering_interval`, and consider adding a WAF logging filter (see [Limitations](#limitations)).

@@ -28,9 +28,10 @@ resource "aws_kinesis_firehose_delivery_stream" "waf" {
     role_arn   = aws_iam_role.firehose[0].arn
     bucket_arn = data.aws_s3_bucket.logs.arn
 
-    # Partitioned layout keeps S3 listing and future query tools cheap.
-    prefix              = "waf-logs/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
-    error_output_prefix = "waf-logs-errors/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
+    # Partitioned layout, including scope and Region so that a shared bucket can
+    # hold logs from several targets without mixing them.
+    prefix              = "waf-logs/${lower(var.waf_scope)}/${var.aws_region}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+    error_output_prefix = "waf-logs-errors/${lower(var.waf_scope)}/${var.aws_region}/!{firehose:error-output-type}/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
 
     buffering_size     = var.firehose_buffering_size
     buffering_interval = var.firehose_buffering_interval
