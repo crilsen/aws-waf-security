@@ -15,6 +15,7 @@ terraform validate                       # configuration validity
 ```
 
 - `terraform plan` requires AWS credentials and a real ALB ARN. **Not permitted** for this project; do not run it.
+- `terraform init -backend=false` is the only init form allowed: it must never reach the operator's state bucket.
 - `terraform apply` / `destroy` are always forbidden (see `TOOLS.md`).
 - Not available: `tflint`, `checkov`, `trivy`. Record as "Not validated — tool not installed" rather than claiming a pass.
 

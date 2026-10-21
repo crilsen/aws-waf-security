@@ -12,6 +12,7 @@
 In scope:
 
 - Regional Web ACL associated with one ALB whose ARN is supplied explicitly by the operator.
+- The S3 bucket used for WAF logs and the S3 bucket used for Terraform state are supplied by the operator. The project creates neither bucket, and it does not modify their policies.
 - Configurable default action.
 - AWS Managed Rules Common Rule Set and Known Bad Inputs.
 - IP-based rate limiting with a configurable limit.
@@ -19,14 +20,17 @@ In scope:
 - Optional, configurable geographic blocking.
 - WAF metrics, sampled requests, and logging to S3 via Amazon Data Firehose.
 - Rules start in `COUNT`; promotion to `BLOCK` requires a new plan and a new approval.
+- One Terraform file per WAF rule, so each rule can be reviewed and promoted to `BLOCK` on its own.
+- Multi-region delivery: the same module runs once per Region, with one state per Region and `AWS_REGION` as a pipeline parameter.
 - GitLab CI/CD and Jenkins pipelines: format and validate, produce a plan, require manual approval, then apply the exact approved plan file.
 - Documentation: README, architecture diagram, prerequisites, parameters, remote backend setup, least-privilege IAM, local usage, both pipelines, manual approval, rule operation, logging, troubleshooting, cost, cleanup, and limitations.
 
 Out of scope:
 
 - Creating or changing the ALB, VPC, listeners, target groups, application, or DNS.
+- Creating, deleting, or reconfiguring the S3 buckets for logs and state; the operator owns them.
 - Discovering or selecting an ALB automatically: the ARN is a required input.
-- Athena, Glue, CloudFront or global WAF, CAPTCHA, Bot Control, multi-region, multi-account.
+- Athena, Glue, CloudFront or global WAF, CAPTCHA, Bot Control, multi-account.
 
 ## Constraints
 

@@ -2,64 +2,67 @@
 
 ## Resume block (read first)
 
-- Repo state: branch `main` tracked against `origin` (`git@github.com:crilsen/aws-waf-security.git`), HEAD `398d8cb`, working tree clean.
-- Remote: public GitHub repository <https://github.com/crilsen/aws-waf-security>, default branch `main` (fixed manually after creation). Commits are pushed; do not force push.
+- Repo state: branch `main` tracked against `origin` (`git@github.com:crilsen/aws-waf-security.git`); working tree clean after the latest push.
+- Remote: public GitHub repository <https://github.com/crilsen/aws-waf-security>, default branch `main`. Never force push.
 - Source of truth: `AGENTS.md` → `.ai/`
 - Budget / usage observed: `unknown` (not exposed by this session)
-- Checkpoint updated: `2026-10-21 11:30`
-- Last goal: read and adopt the repository context, then publish it to the remote
+- Checkpoint updated: `2026-10-21 15:10`
+- Last goal: implement PRD-001 with operator-provided buckets, one file per rule, and multi-region as one deployment per Region
 - Annotation language: `English` — chosen 2026-10-21, not declared as a standing preference
-- Exact next action: start task 1 of `.ai/TASKS.md` — repository skeleton and Terraform root module (`versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`) for PRD-001
+- Exact next action: review the published implementation; if further work is requested, follow `.ai/workflows/terraform-change.md` and re-run `./scripts/validate.sh`
 - Blocked by: `None.` (`terraform plan`/`apply` and AWS access are out of scope by design)
 - Resume prompt: `Read AGENTS.md and .ai/HANDOFF.md. Continue from the Resume block. Do not rediscover context.`
 
 ## Goal
 
-Establish durable, portable context for this repository and keep it current, then implement `aws-waf-security.md`: a Terraform-delivered AWS WAFv2 Regional Web ACL protecting an existing ALB, with GitLab and Jenkins pipelines gated by manual approval.
+Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regional Web ACL, with rules starting in `COUNT`, logs to S3 through Firehose, and GitLab/Jenkins pipelines that apply only a human-approved plan.
 
 ## Current State
 
-- `.ai/` is populated with observed facts; it is no longer the generic template.
-- `aws-waf-security.md` is recorded as the approved requirement (PRD-001) in `.ai/REQUIREMENTS.md`.
-- Git is initialized on `main` with `.gitignore` in place; no Terraform, pipeline, or README files exist yet.
-- No AWS access was performed or is required.
+- Terraform module complete: Web ACL, association, six per-file rules, optional IP sets, Firehose logging to the operator's bucket, least-privilege Firehose IAM, outputs.
+- Both S3 buckets (logs and state) are operator-provided; the module creates neither and fails fast if the log bucket is missing or in another Region.
+- Multi-region is one deployment per Region with a Region-scoped state key.
+- Both pipelines implemented and statically verified.
+- README, IAM JSON examples, and a single validation entry point (`./scripts/validate.sh`) are in place.
+- Local validation passes: `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck`.
+- Nothing was planned, applied, deployed, or authenticated against AWS.
 
 ## What Was Done
 
-- Read `AGENTS.md` and every file in `.ai/`, plus the specification `aws-waf-security.md`.
-- Detected the plug-and-play bootstrap mode and populated `PROJECT.md`, `ARCHITECTURE.md`, `CONVENTIONS.md`, `VALIDATION.md`, `TOOLS.md`, `REQUIREMENTS.md`, `TASKS.md`, and this file.
-- Recorded the durable-context mode (automatic), the annotation language (English), and simple mode for decision records.
-- Initialized git and added a `.gitignore` covering Terraform state and plans, local variable files, secrets, and CI artifacts.
-- Probed the environment: `terraform` 1.16.1, `aws-cli` 2.37.4, `docker`, `python3` with PyYAML, `node`, `jq`, `shellcheck`; missing `tofu`, `tflint`, `checkov`, `trivy`, `yamllint`, `jenkins`, `groovy`.
+- Recorded ADR-001 (operator-provided buckets), ADR-002 (one file per rule), ADR-003 (priority order), ADR-004 (multi-region = one deployment per Region), TDR-001 (WAFv2 + Firehose), TDR-002 (S3 native locking).
+- Built the module: `versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`, `data.tf`, `waf.tf`, `waf_rules.tf`, `waf_ip_sets.tf`, six `waf_rule_*.tf`, `logging.tf`, `iam.tf`, `outputs.tf`.
+- Added examples (`terraform.tfvars.example`, `backend.hcl.example`) with fictional values only.
+- Added pipelines, STS helper scripts, IAM policy examples, and the README.
+- Fixed a validation error found during the work: the AWS provider's `aws_s3_bucket` data source exposes `region`, not `bucket_region`, and there is no `aws_s3_bucket_location` data source.
 
 ## Files Changed
 
-- `.ai/PROJECT.md`, `.ai/ARCHITECTURE.md`, `.ai/CONVENTIONS.md`, `.ai/VALIDATION.md`, `.ai/TOOLS.md`, `.ai/REQUIREMENTS.md`, `.ai/TASKS.md`, `.ai/DECISIONS.md` (mode note), `.ai/HANDOFF.md`
-- `.gitignore` (new)
-- Git repository initialized with local identity `Cristiano <cristiano@nilsen.com.br>`
+- Terraform: all root `*.tf` files, `.terraform.lock.hcl`, `terraform.tfvars.example`, `backend.hcl.example`.
+- CI: `.gitlab-ci.yml`, `Jenkinsfile`, `scripts/assume-role.sh`, `scripts/require-env.sh`, `scripts/validate.sh`, `tests/check_pipelines.py`.
+- Docs: `README.md`, `docs/iam/deployer-policy.json`, `docs/iam/log-bucket-policy.json`, `docs/iam/gitlab-oidc-trust-policy.json`.
+- Context: `.ai/PROJECT.md`, `.ai/ARCHITECTURE.md`, `.ai/CONVENTIONS.md`, `.ai/VALIDATION.md`, `.ai/TOOLS.md`, `.ai/REQUIREMENTS.md`, `.ai/TASKS.md`, `.ai/DECISIONS.md`, `.ai/LEARNINGS.md`, `.ai/HANDOFF.md`, `.gitignore`.
 
 ## Decisions Made
 
-- Context maintenance is **automatic** for this repository (user choice, 2026-10-21).
-- Relay and code annotations are **English**; the Portuguese spec stays as provided.
-- Decision records use **simple mode** (inline in `DECISIONS.md`).
-- The ALB is an input, never a managed resource; no ALB discovery.
-- Validation is limited to `fmt`, `init -backend=false`, and `validate`, plus static pipeline checks.
+- Buckets are operator-provided; state key includes the Region; native S3 locking.
+- Managed rule groups use `override_action` (`none`/`count`); detection rules use `action` (`block`/`count`).
+- The IP allow list always allows, in both modes.
+- Geo restriction only blocks listed countries; "allow only these countries" is a documented limitation.
+- Apply consumes a checksummed plan artifact; neither pipeline plans after approval.
 
 ## Problems / Risks
 
-- `terraform init` needs network access to the provider registry. If the sandbox blocks it, `validate` cannot run and must be reported as not validated.
-- `jenkins`/`groovy` are unavailable, so the `Jenkinsfile` can only be checked structurally, not parsed by Jenkins.
-- This directory lives under WSL2 and arrived with Windows `Zone.Identifier` streams; they are ignored by git but still on disk.
+- Provider version is pinned with `~> 5.60`; a future 6.x upgrade needs a review.
+- `data "aws_s3_bucket"` adds an `s3:ListBucket`/`GetBucketLocation` permission requirement to the deployment role.
+- Jenkins structural checks are textual because `jenkins`/`groovy` are unavailable; a real pipeline run is still unverified.
+- The plan artifact contains ARNs and account data; artifact access is restricted and expires in one day.
 
 ## Validation Performed
 
-- Context consistency reviewed by reading the written files back (no automated check exists for `.ai/`).
-- `git status` confirmed only intended files are tracked; `.gitignore` excludes state, plans, tfvars, and secrets.
-- Application validation (`terraform fmt`/`validate`, pipeline parsing) is **Not validated** — no code exists yet.
+- `./scripts/validate.sh` — passed: `terraform fmt -check -recursive`, `terraform init -backend=false`, `terraform validate` (AWS provider 5.100.0), `tests/check_pipelines.py`, `shellcheck scripts/*.sh`.
+- Not validated: `terraform plan`, `terraform apply`, real GitLab/Jenkins execution, any AWS API call.
 
 ## Next Actions
 
-- Task 1: repository skeleton and Terraform root module.
-- Then WAF rules in `COUNT`, association bound to the supplied ALB ARN, logging via Firehose to S3, outputs, and `terraform.tfvars.example`.
-- Then `.gitlab-ci.yml` and `Jenkinsfile` with the approval gate, followed by the README and the validation pass.
+- Optional: add CloudWatch alarms and a WAF logging filter (both listed as out of MVP).
+- Optional: publish a first pipeline run in `COUNT` once the operator creates the buckets and the deployment role.

@@ -25,22 +25,46 @@ AWS WAFv2 Regional Web ACL
    └─ optional geographic blocking (configurable)
         │
         ├─ metrics + sampled requests
-        └─ logs → Amazon Data Firehose → S3 (encrypted, access-controlled, retention)
+        └─ logs → Amazon Data Firehose → [operator-provided S3 bucket]
 ```
 
-Rule evaluation order and precedence across the optional lists are still to be designed during implementation and recorded in `DECISIONS.md`.
+Rule evaluation order (priority): IP allow list, IP deny list, AWS Managed Common Rule Set, AWS Managed Known Bad Inputs, geo restriction, rate limit. Rationale is recorded in `DECISIONS.md`.
+
+## Rule file layout
+
+Terraform does not read subdirectories of a root module, so each rule lives in its own top-level file and is aggregated by `waf_rules.tf`:
+
+```text
+waf_rule_ip_allowlist.tf          priority 0    action allow (always)
+waf_rule_ip_denylist.tf           priority 5    COUNT | BLOCK
+waf_rule_managed_common.tf        priority 10   override_action none | count
+waf_rule_managed_known_bad_inputs.tf  priority 20   override_action none | count
+waf_rule_geo.tf                   priority 30   COUNT | BLOCK
+waf_rule_rate_limit.tf            priority 40   COUNT | BLOCK
+waf_ip_sets.tf                    optional aws_wafv2_ip_set resources
+waf.tf                            web ACL + association
+```
+
+## Operator-owned buckets
+
+- **Logs bucket:** name is a required variable. The project creates the Firehose delivery stream, its IAM role, and the WAF logging configuration, but not the bucket or its policy. A `data "aws_s3_bucket"` lookup fails fast when the bucket is missing, and a precondition rejects a bucket in a different Region.
+- **State bucket:** configured at `terraform init` time through `backend.hcl` or `-backend-config`. Backend block enables encryption and S3 native state locking (`use_lockfile`), so no DynamoDB table is required. The bucket, versioning, encryption, and Block Public Access are the operator's responsibility and are documented in the README.
 
 ## Boundaries
 
-- The project creates the Web ACL, its association to the provided ALB ARN, the Firehose delivery stream, the log bucket, and supporting IAM.
-- The ALB is an input, never a managed resource. A plan must not propose changes to the ALB.
-- Terraform state uses a remote backend with encryption, versioning, and locking. The backend is documented, not provisioned by this project.
+- The project creates the Web ACL, its association to the provided ALB ARN, the optional IP sets, the Firehose delivery stream, and the supporting IAM.
+- The ALB and both S3 buckets are inputs, never managed resources. A plan must not propose changes to them.
+- Terraform state uses a remote backend with encryption and locking, both supplied by the operator.
 
 ## Delivery architecture
 
 - **GitLab CI/CD:** format and validate on branches and merge requests; `plan` and `apply` restricted to the protected default branch; plan exposed as a restricted, short-lived artifact; manual approval job after `plan`; `apply` depends on both the artifact and the approval; protected environment where available; ALB ARN supplied as a protected variable; AWS access through OIDC with temporary credentials.
 - **Jenkins:** declarative `Jenkinsfile` with parameters for AWS Region and existing ALB ARN; stages `Validate` → `Plan` → `Approval` → `Apply`; deployment restricted to the protected default branch; manual approval limited to an authorized user or group; the plan file is preserved between stages; temporary credentials from an IAM role.
 - Both pipelines apply the exact binary plan file approved earlier and never regenerate a plan after approval.
+
+## Multi-region
+
+Each Region is an independent deployment with its own state (`aws-waf-security/<region>/terraform.tfstate`), its own Web ACL, Firehose stream, and protected environment. There is no single apply that spans Regions, and no global (CloudFront) Web ACL. Rationale: ADR-004.
 
 ## Context-layer layout
 

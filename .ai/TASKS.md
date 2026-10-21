@@ -2,28 +2,24 @@
 
 ## Active
 
-- Context bootstrap: `.ai/` was still the `ai-agent-relay` template and has been populated with facts observed from this repository and from `aws-waf-security.md` (2026-10-21).
+- Nothing in progress. PRD-001 is implemented, validated locally, and published.
 
 ## Planned
 
-Implementation of PRD-001 (`aws-waf-security.md`), in this order:
-
-1. Repository skeleton: `.gitignore`, `README.md` outline, `docs/` layout.
-2. Terraform root module: `versions.tf`, `providers.tf`, `variables.tf` (including ALB ARN format and Region validation), `locals.tf`.
-3. Web ACL: default action, AWS Managed Rules (Common Rule Set, Known Bad Inputs), IP rate limit, optional allow/deny IP lists, optional geo blocking — all defaulting to `COUNT`.
-4. Association resource bound to the supplied ALB ARN only.
-5. Logging: S3 bucket (encryption, access control, retention), Amazon Data Firehose delivery stream, WAF logging configuration, required IAM.
-6. Outputs and `terraform.tfvars.example` with fictional values.
-7. `.gitlab-ci.yml`: fmt/validate on branches and merge requests, plan/apply on the protected default branch, plan artifact, manual approval, OIDC.
-8. `Jenkinsfile`: declarative, parameters for Region and ALB ARN, Validate → Plan → Approval → Apply, plan preserved between stages, IAM role credentials.
-9. `README.md`: all sections required by the specification, including backend setup, least-privilege IAM, COUNT→BLOCK promotion, troubleshooting, cost, cleanup, limitations.
-10. Validation: `terraform fmt`, `terraform init -backend=false`, `terraform validate`, YAML parse, static pipeline assertions, `shellcheck`; report what could not run.
+1. Optional hardening not in the MVP: CloudWatch alarms on `BlockedRequests`, WAF logging filter to reduce log volume, IPv6 IP sets.
+2. First real usage: create the deployment role and state/log buckets outside this repository, then run the GitLab or Jenkins pipeline for one Region in `COUNT` mode.
 
 ## Blocked
 
-- Nothing blocking. `terraform plan`/`apply` and AWS access are intentionally out of scope and must not be performed.
+- `terraform plan`/`apply` and any AWS call remain out of scope for this repository: they need real buckets, a real ALB ARN, and credentials.
 
 ## Completed
 
-- 2026-10-21: populated `.ai/PROJECT.md`, `ARCHITECTURE.md`, `CONVENTIONS.md`, `VALIDATION.md`, `TOOLS.md`, `REQUIREMENTS.md`, `HANDOFF.md`, `TASKS.md`.
-- 2026-10-21: initialized git and added `.gitignore` covering Terraform state/plans, local variable files, secrets, and CI artifacts.
+- 2026-10-21: populated `.ai/` from observed facts and recorded PRD-001.
+- 2026-10-21: initialized git, added `.gitignore`, published to `github.com/crilsen/aws-waf-security`.
+- 2026-10-21: recorded ADR-001..ADR-004 and TDR-001..TDR-002.
+- 2026-10-21: implemented the Terraform module with one file per rule, operator-provided log and state buckets, Firehose logging, and least-privilege IAM.
+- 2026-10-21: implemented `.gitlab-ci.yml` (validate → plan → approval → apply, OIDC, plan artifact + checksum) and `Jenkinsfile` (same gate, stashed plan, restricted submitter).
+- 2026-10-21: added `scripts/assume-role.sh`, `scripts/require-env.sh`, `scripts/validate.sh`, `tests/check_pipelines.py`, and `docs/iam/*.json`.
+- 2026-10-21: wrote the README covering every section required by the specification.
+- 2026-10-21: validated with `terraform fmt -check`, `init -backend=false`, `validate`, pipeline static checks, and `shellcheck`; all passed.

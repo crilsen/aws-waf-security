@@ -39,4 +39,25 @@ After promotion, set the entry to `Status: promoted` and keep it as a breadcrumb
 
 ## Entries
 
-_None yet._
+### L-001 — aws_s3_bucket data source exposes `region`, not `bucket_region`
+
+Date: 2026-10-21
+Status: active
+Confidence: observed
+Scope: terraform/aws-provider
+Context: Needed the log bucket's Region to enforce same-Region delivery for Firehose.
+Evidence: `terraform validate` rejected `data.aws_s3_bucket.logs.bucket_region`; `terraform providers schema -json` lists `region` among the data source attributes. There is no `aws_s3_bucket_location` data source in provider 5.100.0.
+Pattern / rule: Use `data.aws_s3_bucket.<name>.region` for a bucket's Region; it can be empty for us-east-1, so coalesce with `"us-east-1"`.
+Promotion: none
+
+### L-002 — Terraform 1.16 unifies heterogeneous objects in `concat`
+
+Date: 2026-10-21
+Status: active
+Confidence: observed
+Scope: terraform
+Context: Aggregating rule objects with different attributes from per-rule files into one list for `dynamic "rule"`.
+Evidence: A scratch config with `concat()` of objects having different attribute sets passed `terraform validate` on 1.16.1, but attribute access on a missing key still fails at plan time.
+Pattern / rule: Type unification is not a substitute for a stable shape: merge every rule into shared defaults (`local.rule_defaults`, `local.statement_defaults`) so every object exposes the same attributes.
+Promotion: CONVENTIONS.md
+
