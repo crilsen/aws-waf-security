@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# Terraform state, plans, and local overrides — never commit these
+# ---------------------------------------------------------------------------
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+
+# Saved plans: a plan may embed sensitive values and must stay ephemeral
+*.tfplan
+*.tfplan.*
+plan.out
+plan.tfplan
+tfplan
+
+# Local variable files (real ALB ARNs, account IDs, overrides)
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Local backend configuration
+backend.hcl
+backend.tfvars
+
+# Local CLI overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform working directory (providers/modules cache)
+# .terraform.lock.hcl is intentionally NOT ignored: commit it for reproducibility.
+.terraform/
+
+# Terraform environments/plugins cache
+.terraform.d/
+
+# ---------------------------------------------------------------------------
+# Secrets and credentials — never commit these
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials
+.aws/
+kubeconfig
+id_rsa*
+
+# ---------------------------------------------------------------------------
+# CI artifacts
+# ---------------------------------------------------------------------------
+*.plan
+tfplan.bin
+approval-*.txt
+
+# ---------------------------------------------------------------------------
+# Editors, OS, and Windows metadata
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+*:Zone.Identifier
+
+# ---------------------------------------------------------------------------
+# Language/tooling scratch
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+.cache/
