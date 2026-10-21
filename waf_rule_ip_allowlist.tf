@@ -5,7 +5,9 @@
 # present in both lists is allowed, because this rule runs first.
 
 locals {
-  rule_ip_allowlist = length(var.ip_allow_list) > 0 ? [
+  rule_ip_allowlist = (
+    contains(local.enabled_rule_names, "ip_allowlist") && length(var.ip_allow_list) > 0
+    ) ? [
     merge(local.rule_defaults, {
       name        = "ip-allowlist"
       priority    = 0

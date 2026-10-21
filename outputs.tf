@@ -35,9 +35,18 @@ output "rules" {
       name     = rule.name
       priority = rule.priority
       action   = coalesce(rule.action, rule.override_action)
-      mode     = rule.override_action == null ? var.rule_mode : "managed (${rule.override_action})"
     }
   ]
+}
+
+output "enabled_rules" {
+  description = "Rules that exist in this Regional Web ACL."
+  value       = sort(var.enabled_rules)
+}
+
+output "effective_rule_actions" {
+  description = "Action applied to every rule name, after merging rule_mode with rule_actions."
+  value       = local.effective_rule_actions
 }
 
 output "log_bucket_name" {

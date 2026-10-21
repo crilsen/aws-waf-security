@@ -5,11 +5,11 @@
 # override_action for the same reason as the Common Rule Set.
 
 locals {
-  rule_managed_known_bad_inputs = [
+  rule_managed_known_bad_inputs = contains(local.enabled_rule_names, "managed_known_bad_inputs") ? [
     merge(local.rule_defaults, {
       name            = "aws-managed-known-bad-inputs"
       priority        = 20
-      override_action = local.managed_override_action
+      override_action = local.managed_override_action_by_name["managed_known_bad_inputs"]
       metric_name     = "${var.name_prefix}-aws-managed-known-bad-inputs"
 
       statement = merge(local.statement_defaults, {
@@ -18,5 +18,5 @@ locals {
         rule_action_overrides   = var.known_bad_inputs_rule_overrides
       })
     }),
-  ]
+  ] : []
 }

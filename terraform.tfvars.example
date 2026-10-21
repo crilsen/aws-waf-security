@@ -28,7 +28,23 @@ default_action = "allow"
 
 # COUNT only observes and records matches. Promote to BLOCK with a new plan and
 # a new approval in both pipelines.
-rule_mode = "COUNT"
+#
+# Per-rule promotion, for example only rate limiting:
+#   rule_actions = { rate_limit = "BLOCK" }
+#
+# In the pipelines the policy comes from env/<region>.tfvars, not from this file.
+rule_mode    = "COUNT"
+rule_actions = {}
+
+# Rules that exist in this deployment. Remove a name to leave that rule out.
+enabled_rules = [
+  "ip_allowlist",
+  "ip_denylist",
+  "managed_common",
+  "managed_known_bad_inputs",
+  "geo",
+  "rate_limit",
+]
 
 rate_limit                       = 2000
 rate_limit_evaluation_window_sec = 300

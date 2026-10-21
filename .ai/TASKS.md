@@ -23,3 +23,5 @@
 - 2026-10-21: added `scripts/assume-role.sh`, `scripts/require-env.sh`, `scripts/validate.sh`, `tests/check_pipelines.py`, and `docs/iam/*.json`.
 - 2026-10-21: wrote the README covering every section required by the specification.
 - 2026-10-21: validated with `terraform fmt -check`, `init -backend=false`, `validate`, pipeline static checks, and `shellcheck`; all passed.
+- 2026-10-21: implemented per-region policy (ADR-005): `enabled_rules`, `rule_actions`, and `env/<region>.tfvars` loaded by both pipelines; removed `RULE_MODE` from pipeline parameters so policy changes are reviewed in git.
+- 2026-10-21: fixed a plan-time `concat` panic caused by a tuple-typed `country_codes`; defaults now use `tolist([])`, verified with `terraform console` for both Regions and for per-rule BLOCK overrides.

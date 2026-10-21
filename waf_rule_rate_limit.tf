@@ -8,11 +8,11 @@
 # configured: behind the ALB, WAF sees the load balancer's client address.
 
 locals {
-  rule_rate_limit = [
+  rule_rate_limit = contains(local.enabled_rule_names, "rate_limit") ? [
     merge(local.rule_defaults, {
       name        = "rate-limit-per-ip"
       priority    = 40
-      action      = local.rule_action
+      action      = local.rule_action_by_name["rate_limit"]
       metric_name = "${var.name_prefix}-rate-limit-per-ip"
 
       statement = merge(local.statement_defaults, {
@@ -21,5 +21,5 @@ locals {
         evaluation_window_sec = var.rate_limit_evaluation_window_sec
       })
     }),
-  ]
+  ] : []
 }

@@ -8,14 +8,35 @@ locals {
     var.tags,
   )
 
-  # Action applied to the detection rules (deny list, geo, rate limit) and the
-  # override action applied to the AWS managed rule groups.
-  #
-  # COUNT is the only sane initial value: it evaluates and records matching
-  # requests without blocking them. Promoting to BLOCK requires a new plan and
-  # a new approval in both pipelines.
-  rule_action             = var.rule_mode == "BLOCK" ? "block" : "count"
-  managed_override_action = var.rule_mode == "BLOCK" ? "none" : "count"
+  # Rule names are the keys shared by enabled_rules and rule_actions.
+  rule_names = toset([
+    "ip_allowlist",
+    "ip_denylist",
+    "managed_common",
+    "managed_known_bad_inputs",
+    "geo",
+    "rate_limit",
+  ])
+
+  enabled_rule_names = toset(var.enabled_rules)
+
+  # rule_mode is the per-deployment default; rule_actions overrides it per rule,
+  # which is how each Region gets its own policy from its own var file.
+  effective_rule_actions = merge(
+    { for name in local.rule_names : name => var.rule_mode },
+    var.rule_actions,
+  )
+
+  # Terminating rules (deny list, geo, rate limit) use `action`.
+  rule_action_by_name = {
+    for name, mode in local.effective_rule_actions : name => mode == "BLOCK" ? "block" : "count"
+  }
+
+  # Managed rule groups use `override_action`: `none` keeps the group's verdicts,
+  # `count` forces the whole group to COUNT.
+  managed_override_action_by_name = {
+    for name, mode in local.effective_rule_actions : name => mode == "BLOCK" ? "none" : "count"
+  }
 
   # Region encoded in the ALB ARN. The format itself is validated on the
   # variable; this value is used to prove Region consistency at plan time.
@@ -48,6 +69,8 @@ locals {
     ip_set_arn              = null
     limit                   = null
     evaluation_window_sec   = null
-    country_codes           = null
+    # Concrete list type on purpose: a tuple here makes `concat` panic with
+    # "inconsistent list element types" once the geo rule sets a real list.
+    country_codes = tolist([])
   }
 }

@@ -5,11 +5,13 @@
 # rule_mode: COUNT while tuning, BLOCK after review.
 
 locals {
-  rule_ip_denylist = length(var.ip_deny_list) > 0 ? [
+  rule_ip_denylist = (
+    contains(local.enabled_rule_names, "ip_denylist") && length(var.ip_deny_list) > 0
+    ) ? [
     merge(local.rule_defaults, {
       name        = "ip-denylist"
       priority    = 5
-      action      = local.rule_action
+      action      = local.rule_action_by_name["ip_denylist"]
       metric_name = "${var.name_prefix}-ip-denylist"
 
       statement = merge(local.statement_defaults, {

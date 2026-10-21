@@ -15,7 +15,10 @@
 #   ALB_ARN          ARN of the existing ALB (must be in AWS_REGION)
 # Optional:
 #   TF_STATE_REGION  Region of the state bucket, defaults to AWS_REGION
-#   RULE_MODE        COUNT (default) or BLOCK; BLOCK needs a new plan + approval
+#
+# The WAF policy itself (enabled rules, per-rule COUNT/BLOCK, rate limit, IP and
+# geo lists, managed-rule overrides) comes from env/<AWS_REGION>.tfvars, which
+# is reviewed and versioned per Region. The file must exist before plan runs.
 #
 # Each Region deploys independently: the state key includes AWS_REGION and the
 # environment is production/<region>, so approvals are per Region.
@@ -76,6 +79,7 @@ plan:
   resource_group: "waf-plan-${AWS_REGION}"
   script:
     - ./scripts/require-env.sh AWS_REGION ALB_ARN TF_LOG_BUCKET TF_STATE_BUCKET AWS_ROLE_ARN
+    - test -f "env/${AWS_REGION}.tfvars" || { echo "Missing env/${AWS_REGION}.tfvars"; exit 1; }
     - TF_STATE_REGION="${TF_STATE_REGION:-${AWS_REGION}}"
     - export TF_STATE_REGION
     - eval "$(./scripts/assume-role.sh)"
@@ -91,7 +95,7 @@ plan:
       -var="aws_region=${AWS_REGION}"
       -var="alb_arn=${ALB_ARN}"
       -var="log_bucket_name=${TF_LOG_BUCKET}"
-      -var="rule_mode=${RULE_MODE:-COUNT}"
+      -var-file="env/${AWS_REGION}.tfvars"
     - terraform show -no-color "${PLAN_FILE}" > "${PLAN_TEXT}"
     - sha256sum "${PLAN_FILE}" > "${PLAN_CHECKSUM}"
   artifacts:

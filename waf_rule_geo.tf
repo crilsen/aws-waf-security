@@ -12,16 +12,18 @@
 # would silently mislead the operator.
 
 locals {
-  rule_geo = length(var.geo_restricted_countries) > 0 ? [
+  rule_geo = (
+    contains(local.enabled_rule_names, "geo") && length(var.geo_restricted_countries) > 0
+    ) ? [
     merge(local.rule_defaults, {
       name        = "geo-restriction"
       priority    = 30
-      action      = local.rule_action
+      action      = local.rule_action_by_name["geo"]
       metric_name = "${var.name_prefix}-geo-restriction"
 
       statement = merge(local.statement_defaults, {
         type          = "geo_match"
-        country_codes = local.geo_country_codes
+        country_codes = tolist(local.geo_country_codes)
       })
     }),
   ] : []

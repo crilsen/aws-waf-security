@@ -61,3 +61,14 @@ Evidence: A scratch config with `concat()` of objects having different attribute
 Pattern / rule: Type unification is not a substitute for a stable shape: merge every rule into shared defaults (`local.rule_defaults`, `local.statement_defaults`) so every object exposes the same attributes.
 Promotion: CONVENTIONS.md
 
+### L-003 — `concat` of rule objects panics when a nested field switches from null to tuple
+
+Date: 2026-10-21
+Status: promoted
+Confidence: observed
+Scope: terraform
+Context: Adding per-region geo blocking exposed a latent failure while evaluating rule aggregation with real values.
+Evidence: `terraform console -var-file=env/eu-west-1.tfvars` failed with `panic in function implementation: inconsistent list element types`, because `country_codes` was `cty.DynamicPseudoType` (null) in one rule and `cty.Tuple([string])` in the geo rule. `terraform validate` reported success.
+Pattern / rule: Give every nested field in a shared object shape a concrete type. Use `tolist([])` as the default and `tolist(...)` on assignment instead of `null`/bare lists.
+Promotion: CONVENTIONS.md
+

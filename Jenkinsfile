@@ -15,6 +15,9 @@
 //     role ARN is stored as the Jenkins secret text credential
 //     `waf-deploy-role-arn` (override with the CREDENTIALS_ID parameter).
 //   - No AWS credentials in this repository and none typed into parameters.
+//   - The WAF policy for each Region lives in env/<region>.tfvars, reviewed and
+//     versioned. It is not a pipeline parameter: changing policy goes through a
+//     commit, a plan, and an approval.
 
 pipeline {
   agent { label 'terraform' }
@@ -31,7 +34,6 @@ pipeline {
     string(name: 'LOG_BUCKET', defaultValue: '', description: 'Existing S3 bucket that receives WAF logs through Firehose.')
     string(name: 'TF_STATE_BUCKET', defaultValue: '', description: 'Existing S3 bucket that stores Terraform state.')
     string(name: 'TF_STATE_REGION', defaultValue: '', description: 'Region of the state bucket. Empty uses AWS_REGION.')
-    choice(name: 'RULE_MODE', choices: ['COUNT', 'BLOCK'], description: 'COUNT only observes. BLOCK requires a new plan and a new approval.')
     string(name: 'APPROVERS', defaultValue: 'waf-approvers', description: 'Jenkins user or group allowed to approve the plan.')
     string(name: 'CREDENTIALS_ID', defaultValue: 'waf-deploy-role-arn', description: 'Jenkins credential ID holding the deployment role ARN.')
   }
@@ -69,6 +71,7 @@ pipeline {
           sh '''
             set -eu
             ./scripts/require-env.sh AWS_REGION ALB_ARN LOG_BUCKET TF_STATE_BUCKET AWS_ROLE_ARN
+            test -f "env/${AWS_REGION}.tfvars" || { echo "Missing env/${AWS_REGION}.tfvars"; exit 1; }
             : "${TF_STATE_REGION:=${AWS_REGION}}"
             export TF_STATE_REGION
             eval "$(./scripts/assume-role.sh)"
@@ -81,7 +84,7 @@ pipeline {
               -var="aws_region=${AWS_REGION}" \
               -var="alb_arn=${ALB_ARN}" \
               -var="log_bucket_name=${LOG_BUCKET}" \
-              -var="rule_mode=${RULE_MODE}"
+              -var-file="env/${AWS_REGION}.tfvars"
             terraform show -no-color "${PLAN_FILE}" > "${PLAN_TEXT}"
             sha256sum "${PLAN_FILE}" > "${PLAN_CHECKSUM}"
           '''

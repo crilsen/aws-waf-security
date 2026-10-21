@@ -8,11 +8,11 @@
 # through var.common_rule_set_rule_overrides.
 
 locals {
-  rule_managed_common = [
+  rule_managed_common = contains(local.enabled_rule_names, "managed_common") ? [
     merge(local.rule_defaults, {
       name            = "aws-managed-common"
       priority        = 10
-      override_action = local.managed_override_action
+      override_action = local.managed_override_action_by_name["managed_common"]
       metric_name     = "${var.name_prefix}-aws-managed-common"
 
       statement = merge(local.statement_defaults, {
@@ -21,5 +21,5 @@ locals {
         rule_action_overrides   = var.common_rule_set_rule_overrides
       })
     }),
-  ]
+  ] : []
 }

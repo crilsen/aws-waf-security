@@ -66,6 +66,10 @@ waf.tf                            web ACL + association
 
 Each Region is an independent deployment with its own state (`aws-waf-security/<region>/terraform.tfstate`), its own Web ACL, Firehose stream, and protected environment. There is no single apply that spans Regions, and no global (CloudFront) Web ACL. Rationale: ADR-004.
 
+## Per-region policy
+
+`env/<region>.tfvars` is versioned and is the reviewed policy for that Region: `enabled_rules` selects which rules exist, `rule_actions` sets `COUNT`/`BLOCK` per rule, and the thresholds/lists live there too. Both pipelines load it with `-var-file` and fail when it is missing. Secrets stay in pipeline variables. Rationale: ADR-005.
+
 ## Context-layer layout
 
 ```text

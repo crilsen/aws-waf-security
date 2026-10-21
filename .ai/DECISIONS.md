@@ -51,6 +51,7 @@ Consequences:
 | TDR-001 | TDR | AWS WAFv2 Regional with Firehose to S3 logging | Accepted | 2026-10-21 | inline |
 | TDR-002 | TDR | S3 native state locking instead of DynamoDB | Accepted | 2026-10-21 | inline |
 | ADR-004 | ADR | Multi-region means one deployment per Region | Accepted | 2026-10-21 | inline |
+| ADR-005 | ADR | Per-region rule policy in `env/<region>.tfvars` | Accepted | 2026-10-21 | inline |
 
 ## Records
 
@@ -193,6 +194,33 @@ Consequences:
 - Adding a Region is a configuration change plus a new pipeline run, not a new resource block.
 - Cross-Region aggregates (one dashboard for all Regions) are out of scope; each Region has its own metrics and log prefix. The log prefix includes the Region in the pipeline configuration, so objects do not collide in a shared bucket.
 - Global WAF for CloudFront and multi-account are still out of scope.
+
+### ADR-005 — Per-region rule policy in `env/<region>.tfvars`
+
+Type: ADR
+Status: Accepted
+Date: 2026-10-21
+Owners: repository owner
+Supersedes: none
+
+Context:
+The owner needs a different rule set and different actions per Region. Before this decision, `rule_mode` was a single switch for deny list, geo, rate limit, and both managed rule groups, and the rule catalog could not be changed without editing code. Pipeline variables exposed only four inputs, so per-region tuning required editing the pipeline itself.
+
+Decision:
+- `enabled_rules` (set of rule names) decides which rules exist in a Region.
+- `rule_actions` (map of rule name to `COUNT`/`BLOCK`) overrides `rule_mode` per rule.
+- The reviewed policy for each Region lives in `env/<region>.tfvars`, is committed, and is loaded by both pipelines through `-var-file="env/${AWS_REGION}.tfvars"`. Plan fails when the file is missing.
+- `rule_mode` remains the default for any rule not listed in `rule_actions`.
+
+Reasoning:
+Policy becomes reviewable in a diff, one Region can be promoted independently, and the pipeline keeps passing only the values that are genuinely environment-specific (ALB ARN, buckets, region, role).
+
+Consequences:
+- A policy change is a commit + merge request + plan + approval, not a pipeline parameter change.
+- `env/*.tfvars` must never hold secrets; `.gitignore` re-includes `env/*.tfvars` on purpose.
+- `terraform validate` does not evaluate variable values, so policy edits must also be checked with `terraform console -var-file=...` or a plan. This is documented in the README.
+- The rule catalog is still fixed: `enabled_rules` selects among the six supported rules; a new statement type is a code change.
+
 
 
 

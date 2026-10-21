@@ -149,6 +149,7 @@ The backend uses `use_lockfile = true`, so no DynamoDB table is needed: the lock
 ├── .gitlab-ci.yml           validate -> plan -> approval -> apply
 ├── Jenkinsfile              validate -> plan -> approval -> apply
 ├── docs/iam/                deployer policy, bucket policy, GitLab trust policy
+├── env/<region>.tfvars      reviewed WAF policy per Region (no secrets)
 ├── terraform.tfvars.example fictional values
 └── backend.hcl.example      backend keys, state key scoped by Region
 ```
@@ -166,7 +167,9 @@ Values that must be supplied explicitly have no default.
 | `log_bucket_name` | string | required | Existing bucket for WAF logs. |
 | `name_prefix` | string | `waf-alb` | Prefix for ACL, rules, IP sets, Firehose, and log group. |
 | `default_action` | string | `allow` | Action when no rule matches: `allow` or `block`. |
-| `rule_mode` | string | `COUNT` | `COUNT` (observe) or `BLOCK`. Applies to detection rules and managed groups. |
+| `rule_mode` | string | `COUNT` | Default action for every detection rule and managed group. `rule_actions` overrides it per rule. |
+| `rule_actions` | map(string) | `{}` | Per-rule action for this Region, for example `{ rate_limit = "BLOCK" }`. Keys: `ip_denylist`, `managed_common`, `managed_known_bad_inputs`, `geo`, `rate_limit`. |
+| `enabled_rules` | set(string) | all six | Rules created in this Region. Removing a name leaves that rule out of the Web ACL entirely. |
 | `rate_limit` | number | `2000` | Requests per IP per evaluation window. |
 | `rate_limit_evaluation_window_sec` | number | `300` | `60`, `120`, `300`, or `600`. |
 | `ip_allow_list` | list(string) | `[]` | IPv4 CIDRs always allowed (priority 0). |
@@ -181,7 +184,7 @@ Values that must be supplied explicitly have no default.
 | `firehose_log_retention_days` | number | `14` | Retention for the Firehose error log group. |
 | `tags` | map(string) | `{}` | Extra tags merged into the defaults. |
 
-Outputs: `web_acl_arn`, `web_acl_id`, `web_acl_name`, `web_acl_association_id`, `associated_alb_arn`, `rule_mode`, `rules`, `log_bucket_name`, `firehose_delivery_stream_arn`, `firehose_iam_role_arn`, `firehose_error_log_group_name`.
+Outputs: `web_acl_arn`, `web_acl_id`, `web_acl_name`, `web_acl_association_id`, `associated_alb_arn`, `rule_mode`, `enabled_rules`, `effective_rule_actions`, `rules`, `log_bucket_name`, `firehose_delivery_stream_arn`, `firehose_iam_role_arn`, `firehose_error_log_group_name`.
 
 ## Terraform state backend
 
@@ -229,6 +232,7 @@ The agent's instance profile (or another ambient credential source) may call `st
 ```bash
 # 1. Configure inputs
 cp terraform.tfvars.example terraform.tfvars   # fictional values, git-ignored
+cp env/eu-west-1.tfvars env/<your-region>.tfvars  # reviewed policy, versioned
 
 # 2. Initialize with the operator's backend
 cp backend.hcl.example backend.hcl
@@ -237,7 +241,8 @@ terraform init -backend-config=backend.hcl
 # 3. Review
 terraform fmt -recursive
 terraform validate
-terraform plan -out=tfplan.bin
+terraform console -var-file="env/<your-region>.tfvars"   # sanity-check the policy
+terraform plan -var-file="env/<your-region>.tfvars" -out=tfplan.bin
 
 # 4. Apply only after reviewing the plan
 terraform apply tfplan.bin
@@ -262,7 +267,8 @@ Use a dedicated, short-lived role for local runs. Do not keep long-lived credent
 Protection settings to configure in GitLab:
 
 - `main` is the protected default branch, with no direct pushes and at least one approval on merge requests;
-- CI/CD variables are **protected**: `AWS_REGION`, `AWS_ROLE_ARN`, `ALB_ARN`, `TF_STATE_BUCKET`, `TF_LOG_BUCKET`, and optionally `TF_STATE_REGION`, `RULE_MODE`;
+- CI/CD variables are **protected**: `AWS_REGION`, `AWS_ROLE_ARN`, `ALB_ARN`, `TF_STATE_BUCKET`, `TF_LOG_BUCKET`, and optionally `TF_STATE_REGION`;
+- `env/<region>.tfvars` exists and is reviewed: it is the WAF policy for that Region, and the plan job fails when it is missing;
 - the `production/<region>` environment has protected environments enabled and requires approval;
 - runners are trusted, since they handle credentials and the plan artifact;
 - the plan artifact expires in one day and is restricted to maintainers.
@@ -282,7 +288,6 @@ Parameters:
 | `LOG_BUCKET` | empty | Existing bucket for WAF logs (required). |
 | `TF_STATE_BUCKET` | empty | Existing bucket for state (required). |
 | `TF_STATE_REGION` | empty | Defaults to `AWS_REGION`. |
-| `RULE_MODE` | `COUNT` | `COUNT` or `BLOCK`. |
 | `APPROVERS` | `waf-approvers` | Jenkins user or group allowed to approve. |
 | `CREDENTIALS_ID` | `waf-deploy-role-arn` | Secret text credential holding the role ARN. |
 
@@ -291,6 +296,7 @@ Behaviour:
 - `Plan`, `Approval`, and `Apply` only run on the protected `main` branch (`when { branch 'main' }`, which requires a Multibranch Pipeline).
 - The plan file is stashed after `Plan` and unstashed by `Apply`; the checksum is verified before applying.
 - `Apply` never runs `terraform plan`; it applies the stored file.
+- The WAF policy is not a build parameter: `Plan` loads `env/<AWS_REGION>.tfvars`, so every policy change is reviewed in git before it ever reaches a plan.
 - The approval step times out after 24 hours and is restricted with `submitter: params.APPROVERS`.
 - The workspace is cleaned of plan files in the `post` block, and the text plan is archived for review.
 - The agent must never run with `set -x` around `scripts/assume-role.sh`: it prints export statements, not secrets, but tracing would still be noisy and unsafe.
@@ -318,6 +324,8 @@ Promoting rules to `BLOCK` or changing any variable that affects behavior is a n
 
 With `rule_mode = "COUNT"` (the default), the detection rules and both managed rule groups only count matching requests. Nothing is blocked, so a false positive cannot break traffic while you build a baseline.
 
+`rule_actions` promotes individual rules without touching the rest, and `enabled_rules` removes a rule from a Region entirely.
+
 The IP allow list is the exception: it evaluates to `allow` from the start, because it is an operator exception, not a detection rule. A source in both lists is allowed.
 
 ### Observe
@@ -342,12 +350,23 @@ common_rule_set_rule_overrides = {
 
 ### Promote to BLOCK
 
-1. Confirm the rule has been matching only traffic you want to block for a full traffic cycle, including peak hours.
-2. Change `rule_mode` to `"BLOCK"` (or keep `COUNT` and rely on per-rule overrides if you only want specific rules blocking).
-3. Run the pipeline again: a new plan is produced, a human reviews it, and only then is it applied.
-4. Watch HTTP 5xx/4xx rates and WAF `BlockedRequests` metrics immediately after the change.
+Promotion is per rule and per Region, which is the point of `rule_actions`:
 
-Rollback is the same procedure in reverse: set `rule_mode` back to `COUNT`, plan, approve, apply. Do not "fix" blocking with `default_action` changes.
+```hcl
+# env/eu-west-1.tfvars
+rule_mode   = "COUNT"                        # everything else stays observable
+rule_actions = { rate_limit = "BLOCK" }      # only rate limiting blocks here
+```
+
+1. Confirm the rule has been matching only traffic you want to block for a full traffic cycle, including peak hours.
+2. Add or change the entry in `rule_actions` inside `env/<region>.tfvars` and open a merge request.
+3. Run the pipeline: a new plan is produced, a human reviews it, and only then is it applied.
+4. Watch HTTP 5xx/4xx rates and WAF `BlockedRequests` metrics immediately after the change.
+5. Other Regions are untouched: they keep their own `env/<region>.tfvars`.
+
+Rollback is the same procedure in reverse: remove the entry (or set it back to `COUNT`), plan, approve, apply. Do not "fix" blocking with `default_action` changes.
+
+A rule that should not exist in a Region at all is removed from `enabled_rules` in that Region's file, not deleted from the code.
 
 ## Logging
 
@@ -362,17 +381,39 @@ Logging every request has a cost. If the volume is high, lower the buffering fre
 
 ## Multi-region
 
-Each Region is an independent deployment:
+Each Region is an independent deployment with its own reviewed policy:
 
 ```bash
 terraform init -backend-config=backend.hcl                 # key includes the region
-terraform plan -var="aws_region=eu-west-1" -var="alb_arn=..." ...
+terraform plan -var-file="env/eu-west-1.tfvars" \
+  -var="aws_region=eu-west-1" -var="alb_arn=..." ...
 ```
 
 - one Web ACL, association, and Firehose stream per Region;
 - one state object per Region (`aws-waf-security/<region>/terraform.tfstate`) and therefore one lock per Region;
 - one protected environment per Region in GitLab (`production/<region>`) and one pipeline run per Region in Jenkins;
 - approvals are per Region: a plan for `eu-west-1` cannot apply to `us-east-1`.
+
+### Per-region policy
+
+`env/<region>.tfvars` is the policy file for one Region and is versioned on purpose. It can differ freely between Regions:
+
+| File | What it controls |
+| --- | --- |
+| `env/eu-west-1.tfvars` | all six rules enabled, geo blocking for `KP`, 2000 req/IP |
+| `env/us-east-1.tfvars` | geo rule absent, allow list for `192.0.2.0/24`, 1000 req/IP, `SizeRestrictions_BODY` overridden to `COUNT` |
+
+Because both pipelines load `-var-file="env/<AWS_REGION>.tfvars"` and fail when the file is missing, adding a Region means adding its policy file, not editing code:
+
+```bash
+cp env/eu-west-1.tfvars env/ap-southeast-2.tfvars
+terraform init -backend-config=backend.hcl
+terraform plan -var-file="env/ap-southeast-2.tfvars" -var="aws_region=ap-southeast-2" ...
+```
+
+Secrets never belong in these files. The ALB ARN, the log bucket, the state bucket, and the role ARN stay as protected pipeline variables.
+
+Validation: `terraform validate` does not evaluate variable values, so run `terraform console -var-file="env/<region>.tfvars"` (or `terraform plan`) after editing a policy file. The repository was checked this way for both included Regions.
 
 Global WAF (CloudFront) and multi-account are out of scope.
 
@@ -429,6 +470,7 @@ Run cleanup from the same Region/state pair that created the resources. Do not d
 ## Limitations
 
 - **One ALB per deployment.** The ARN is a single required input by design; several ALBs in one Region need several deployments with distinct `name_prefix` and state keys.
+- **Fixed rule catalog.** The six rules are the supported set; `enabled_rules` and `rule_actions` change which of them exist and how they act per Region, but a new kind of statement (custom match, header rule, trusted IP group) is a code change.
 - **IPv4 only.** IP sets use `IPV4`; IPv6 CIDRs are rejected by validation.
 - **Geo blocking only.** `geo_restricted_countries` blocks the listed countries. An "allow only these countries" policy is not expressible without listing every other country, so it is out of scope.
 - **No global WAF.** CloudFront-scoped Web ACLs are out of scope; this project is Regional only.
@@ -453,5 +495,6 @@ Everything below is reproducible with `./scripts/validate.sh`, which never touch
 - `.gitlab-ci.yml` parsed as YAML; stages, jobs, artifact, checksum step, OIDC tokens, branch restrictions, and the blocking manual approval asserted by `tests/check_pipelines.py`.
 - `Jenkinsfile` checked structurally: stage order, `stash`/`unstash` around the plan file, `apply` never calls `terraform plan`, approval restricted by `submitter` and a timeout, protected branch on Plan/Approval/Apply.
 - `shellcheck` on `scripts/*.sh`.
+- Per-region policy files resolved with `terraform console -var-file=env/<region>.tfvars` for both included Regions, confirming different rule sets and actions (`eu-west-1`: 4 rules including geo; `us-east-1`: allow list, no geo, different thresholds). This check caught a real defect: a tuple-typed country list made `concat` fail at plan time, fixed by forcing `tolist` in `local.statement_defaults`.
 
 Not validated: `terraform plan`, `terraform apply`, and any AWS interaction. Those require an account, an existing ALB, and both buckets, and are intentionally out of scope for this repository.

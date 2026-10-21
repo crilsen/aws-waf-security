@@ -77,6 +77,18 @@ def check_gitlab_ci() -> None:
         "gitlab: apply must verify the plan checksum before applying",
     )
     check(
+        '-var-file="env/${AWS_REGION}.tfvars"' in plan_script,
+        "gitlab: plan must load the per-region policy file",
+    )
+    check(
+        'test -f "env/${AWS_REGION}.tfvars"' in plan_script,
+        "gitlab: plan must fail fast when the per-region policy file is missing",
+    )
+    check(
+        "-var=\"rule_mode=" not in plan_script,
+        "gitlab: rule policy must come from the reviewed per-region file, not a pipeline variable",
+    )
+    check(
         "id_tokens" in jobs.get("plan", {}) and "id_tokens" in jobs.get("apply", {}),
         "gitlab: plan and apply must use OIDC id_tokens",
     )
@@ -120,6 +132,18 @@ def check_jenkinsfile() -> None:
 
         check("terraform plan -input=false" in plan, "jenkins: Plan must run terraform plan")
         check("stash " in plan, "jenkins: Plan must stash the plan file")
+        check(
+            '-var-file="env/${AWS_REGION}.tfvars"' in plan,
+            "jenkins: Plan must load the per-region policy file",
+        )
+        check(
+            'test -f "env/${AWS_REGION}.tfvars"' in plan,
+            "jenkins: Plan must fail fast when the per-region policy file is missing",
+        )
+        check(
+            'rule_mode=' not in plan,
+            "jenkins: rule policy must come from the reviewed per-region file",
+        )
         check("terraform plan" not in apply_stage, "jenkins: Apply must never generate a new plan")
         check("unstash " in apply_stage, "jenkins: Apply must unstash the plan file")
         check("terraform apply -input=false" in apply_stage, "jenkins: Apply must apply the stored plan")
@@ -135,9 +159,21 @@ def check_jenkinsfile() -> None:
             check("branch 'main'" in body, f"jenkins: {name} must be restricted to the protected branch")
 
 
+def check_env_files() -> None:
+    env_dir = ROOT / "env"
+    files = sorted(env_dir.glob("*.tfvars")) if env_dir.is_dir() else []
+    check(bool(files), "env: no per-region policy files found")
+
+    for path in files:
+        text = path.read_text()
+        check("rule_mode" in text, f"env: {path.name} must set rule_mode")
+        check("enabled_rules" in text, f"env: {path.name} must set enabled_rules")
+
+
 def main() -> int:
     check_gitlab_ci()
     check_jenkinsfile()
+    check_env_files()
 
     if failures:
         print("Pipeline checks FAILED:")

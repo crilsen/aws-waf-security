@@ -22,6 +22,9 @@ ci.auto.tfvars
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
+# Per-region policy files are reviewed and versioned on purpose; they must
+# never contain secrets.
+!env/*.tfvars
 
 # Local backend configuration
 backend.hcl

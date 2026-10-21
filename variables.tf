@@ -57,13 +57,50 @@ variable "default_action" {
 }
 
 variable "rule_mode" {
-  description = "Initial action for detection rules and managed rule groups: COUNT (observe only) or BLOCK. Start with COUNT; promoting to BLOCK requires a new plan and a new approval."
+  description = "Default action for detection rules and managed rule groups: COUNT (observe only) or BLOCK. rule_actions overrides this per rule. Start with COUNT; promoting to BLOCK requires a new plan and a new approval."
   type        = string
   default     = "COUNT"
 
   validation {
     condition     = contains(["COUNT", "BLOCK"], var.rule_mode)
     error_message = "rule_mode must be either COUNT or BLOCK."
+  }
+}
+
+variable "rule_actions" {
+  description = "Per-rule action for this Region, overriding rule_mode. Keys: ip_denylist, managed_common, managed_known_bad_inputs, geo, rate_limit. Values: COUNT or BLOCK. ip_allowlist is not configurable because it is an exception path, not a detection rule."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for name, action in var.rule_actions :
+      contains(["ip_denylist", "managed_common", "managed_known_bad_inputs", "geo", "rate_limit"], name) &&
+      contains(["COUNT", "BLOCK"], action)
+    ])
+    error_message = "rule_actions keys must be ip_denylist, managed_common, managed_known_bad_inputs, geo or rate_limit, and values must be COUNT or BLOCK."
+  }
+}
+
+variable "enabled_rules" {
+  description = "Rules created in this Region. Remove a name to leave that rule out of the Web ACL entirely, so Regions can run different rule sets without changing code. Optional rules (IP lists, geo) are also skipped when they have no data."
+  type        = set(string)
+
+  default = [
+    "ip_allowlist",
+    "ip_denylist",
+    "managed_common",
+    "managed_known_bad_inputs",
+    "geo",
+    "rate_limit",
+  ]
+
+  validation {
+    condition = alltrue([
+      for name in var.enabled_rules :
+      contains(["ip_allowlist", "ip_denylist", "managed_common", "managed_known_bad_inputs", "geo", "rate_limit"], name)
+    ])
+    error_message = "enabled_rules entries must be among ip_allowlist, ip_denylist, managed_common, managed_known_bad_inputs, geo, rate_limit."
   }
 }
 
