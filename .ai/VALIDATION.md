@@ -18,7 +18,8 @@ terraform validate                       # configuration validity
 - `terraform apply` requires **explicit authorization** from the operator for that specific change, must apply a reviewed plan file, and must be recorded in `HANDOFF.md`. Never apply automatically.
 - `terraform destroy` requires the same explicit authorization and a reviewed plan.
 - A real read-only plan was executed on 2026-10-21 against a real account in `us-east-1` (ALB ARN supplied at runtime, log bucket `cn-logs-us-east-1`): 9 resources to add, no changes to existing resources.
-- An authorized apply was executed on 2026-10-21: Web ACL and association created in `us-east-1`, logging disabled because the account blocks Firehose creation (`SubscriptionRequiredException`). `terraform plan` is clean afterwards.
+- An authorized apply was executed on 2026-10-21: Web ACL and association created in `us-east-1`, logging disabled because the account blocks Firehose creation (`SubscriptionRequiredException`).
+- An authorized destroy was executed on 2026-10-21 from a reviewed `-destroy` plan: association, Web ACL, and IP set removed; the ALB has no WAF. Only the empty state object remains in the operator's bucket.
 - Not available: `tflint`, `checkov`, `trivy`. Record as "Not validated — tool not installed" rather than claiming a pass.
 
 ## Pipeline configuration

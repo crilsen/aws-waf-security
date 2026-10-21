@@ -6,11 +6,11 @@
 - Remote: public GitHub repository <https://github.com/crilsen/aws-waf-security>, default branch `main`. Never force push.
 - Source of truth: `AGENTS.md` → `.ai/`
 - Budget / usage observed: `unknown` (not exposed by this session)
-- Checkpoint updated: `2026-10-21 18:40`
-- Last goal: apply the stack to a real account (operator-authorized), then converge without logging after Firehose was blocked by the account
+- Checkpoint updated: `2026-10-21 18:56`
+- Last goal: tear down the deployed stack after the operator authorized removal
 - Annotation language: `English` — chosen 2026-10-21, not declared as a standing preference
-- Exact next action: none pending. When the account allows Firehose creation, set `enable_waf_logging = true` in `env/regional/us-east-1.tfvars`, plan, and apply with authorization.
-- Blocked by: `Firehose CreateDeliveryStream returns SubscriptionRequiredException in this account; logging stays disabled until the service is available.`
+- Exact next action: nothing deployed. Decide whether to delete the remaining empty state object in `cn-terraform-state-us-east-1`, and re-apply only if the account starts allowing Firehose.
+- Blocked by: `Firehose CreateDeliveryStream returns SubscriptionRequiredException in this account; logging would stay disabled if re-applied.`
 - Resume prompt: `Read AGENTS.md and .ai/HANDOFF.md. Continue from the Resume block. Do not rediscover context.`
 
 ## Goal
@@ -20,9 +20,9 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 ## Current State
 
 - Terraform module complete: Web ACL, association, six per-file rules, optional IP sets, Firehose logging to the operator's bucket, least-privilege Firehose IAM, outputs.
-- **Deployed in `us-east-1`** with the operator's authorization: Web ACL `waf-alb-regional-us-east-1-web-acl` associated with the existing ALB `cn-alb-us-east-1`, 4 rules (`allow` on the IP list, `COUNT` elsewhere), default `allow`. `terraform plan` is clean.
-- Logging is **disabled** for that target (`enable_waf_logging = false`) because the account cannot create Firehose delivery streams (`SubscriptionRequiredException`); the logging resources were removed. This is a degraded mode recorded in `env/regional/us-east-1.tfvars` and `LEARNINGS.md` L-006.
-- State: `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate` (bucket without versioning).
+- **Nothing is deployed.** The `us-east-1` stack was destroyed on 2026-10-21 with the operator's authorization: Web ACL, ALB association, and IP set removed; the logging resources had already been removed. The ALB is back to its previous state, with no WAF.
+- State: `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate` still exists with an **empty** state (3 KB), because the state bucket is operator-owned. Delete it only if the deployment history is no longer wanted.
+- `env/regional/us-east-1.tfvars` keeps `enable_waf_logging = false` with the account restriction recorded; flipping it back requires Firehose to be available.
 - Both S3 buckets (logs and state) are operator-provided; the module creates neither.
 - Multi-region = one deployment per Region with a Region-scoped state key (ADR-004).
 - Per-region policy: `enabled_rules`, `rule_actions`, `env/<scope>/<region>.tfvars` (ADR-005).
@@ -36,7 +36,8 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - Added `waf_scope` with CloudFront support and moved pipeline logic into `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`.
 - Fixed two real defects found during validation: the `aws_s3_bucket` data source exposes `region` (not `bucket_region`), and a tuple-typed `country_codes` made `concat` panic at plan time while `validate` passed.
 - Ran a real read-only plan, fixed the `concat`/`map(dynamic)` defect it exposed, and then applied with authorization: 9 resources created, WAF associated with the ALB.
-- Firehose creation failed with `SubscriptionRequiredException`; to leave the environment consistent, set `enable_waf_logging = false` for `us-east-1` and applied, which removed the IAM role, inline policy, log group, and log stream. `terraform plan` is now clean.
+- Firehose creation failed with `SubscriptionRequiredException`; to leave the environment consistent, set `enable_waf_logging = false` for `us-east-1` and applied, which removed the IAM role, inline policy, log group, and log stream.
+- Later, with authorization, destroyed the `us-east-1` stack from a reviewed `-destroy` plan: 3 resources destroyed (association, Web ACL, IP set). Verified that the ALB has no Web ACL, no ACL with that name remains, and the IAM role and log group are gone.
 
 ## Files Changed
 
@@ -73,12 +74,12 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - `terraform console` with each `env/<scope>/<region>.tfvars` — confirmed different rule sets and actions per target, per-rule `BLOCK` overrides, and that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`.
 - Real read-only `terraform plan` (2026-10-21, `us-east-1`, local state in a scratch copy): 9 to add / 0 to change / 0 to destroy; geo plus per-rule BLOCK variant: 10 to add / 0 / 0.
 - **Apply** (2026-10-21, authorized, state in `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate`): 9 resources created; association confirmed with `aws wafv2 get-web-acl-for-resource`; then a second apply converged without logging (4 resources destroyed).
-- Verified afterwards: `terraform plan -detailed-exitcode` returned **no changes**; `get-web-acl-for-resource` shows the ACL with 4 rules, `ip-allowlist` = `allow`, managed groups = `count`, rate limit = `count`, default action `allow`.
+- **Destroy** (2026-10-21, authorized, reviewed destroy plan): 3 resources destroyed (association, Web ACL, IP set). Verified afterwards: no Web ACL for the ALB, no ACL with that name, no Firehose log group, no IAM role.
 - Not validated: WAF logging at runtime (Firehose blocked by the account), real GitLab/Jenkins execution.
 
 ## Next Actions
 
-- When the account permits Firehose creation, set `enable_waf_logging = true` in `env/regional/us-east-1.tfvars`, apply the bucket policy from `docs/iam/log-bucket-policy.json`, plan, and apply with authorization.
-- Enable versioning on `cn-terraform-state-us-east-1` (operator decision; not managed by this module).
+- Decide whether to delete the empty state object at `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate` (operator-owned bucket).
+- Re-apply only when the account permits Firehose, with `enable_waf_logging = true` and the bucket policy from `docs/iam/log-bucket-policy.json`.
 - Optional: add CloudWatch alarms and a WAF logging filter.
 - Optional: promote individual rules to `BLOCK` through `rule_actions` after observing metrics for a full traffic cycle.

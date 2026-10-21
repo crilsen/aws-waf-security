@@ -588,4 +588,4 @@ Everything below is reproducible with `./scripts/validate.sh`, which never touch
 
 Not validated: a real GitLab or Jenkins run. Those require the operator's role, buckets, and approval.
 
-Deployed to a real account in `us-east-1` on 2026-10-21 with `COUNT` rules and default `allow`: the Web ACL was associated with an existing ALB, and `terraform plan` is clean afterwards. Logging is disabled for that target because the account blocks Firehose creation, so the log path remains unvalidated at runtime.
+Deployed to a real account in `us-east-1` on 2026-10-21 with `COUNT` rules and default `allow`, then destroyed the same day at the operator's request. The plan was clean while deployed. Logging was never validated at runtime because that account blocks Firehose creation.

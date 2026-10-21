@@ -33,3 +33,4 @@
 - 2026-10-21: the real plan exposed and fixed a `concat` panic (`map(dynamic)` vs `map(string)` in `rule_action_overrides`); overrides are now resolved with `lookup()` outside the rule objects, and all rule fields use concrete zero values.
 - 2026-10-21: applied to a real account in `us-east-1`: Web ACL `waf-alb-regional-us-east-1-web-acl` associated with `cn-alb-us-east-1`, 4 rules in `COUNT`/`allow`, IP set created. Firehose creation is blocked by the account (`SubscriptionRequiredException`), so `enable_waf_logging = false` was set for this target and the logging resources were removed; `terraform plan` is now clean.
 - 2026-10-21: state stored at `s3://cn-terraform-state-us-east-1/aws-waf-security/regional/us-east-1/terraform.tfstate`.
+- 2026-10-21: destroyed the deployed stack with authorization (3 resources: association, Web ACL, IP set). Nothing is deployed; the ALB has no WAF. The empty state object remains in the operator's bucket.
