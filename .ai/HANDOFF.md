@@ -2,13 +2,14 @@
 
 ## Resume block (read first)
 
-- Repo state: branch `main`, HEAD `65dddaf` (context adoption); the commit that adds this checkpoint sits directly on top. Working tree clean.
+- Repo state: branch `main` tracked against `origin` (`git@github.com:crilsen/aws-waf-security.git`), HEAD `398d8cb`, working tree clean.
+- Remote: public GitHub repository <https://github.com/crilsen/aws-waf-security>, default branch `main` (fixed manually after creation). Commits are pushed; do not force push.
 - Source of truth: `AGENTS.md` → `.ai/`
 - Budget / usage observed: `unknown` (not exposed by this session)
 - Checkpoint updated: `2026-10-21 11:30`
-- Last goal: read and adopt the repository context (`.ai/` was still the `ai-agent-relay` template), then implement the WAF project
+- Last goal: read and adopt the repository context, then publish it to the remote
 - Annotation language: `English` — chosen 2026-10-21, not declared as a standing preference
-- Exact next action: start task 1 of `.ai/TASKS.md` — create the repository skeleton and Terraform root module (`versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`) for PRD-001
+- Exact next action: start task 1 of `.ai/TASKS.md` — repository skeleton and Terraform root module (`versions.tf`, `providers.tf`, `variables.tf`, `locals.tf`) for PRD-001
 - Blocked by: `None.` (`terraform plan`/`apply` and AWS access are out of scope by design)
 - Resume prompt: `Read AGENTS.md and .ai/HANDOFF.md. Continue from the Resume block. Do not rediscover context.`
 
