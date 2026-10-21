@@ -15,7 +15,6 @@ locals {
       statement = merge(local.statement_defaults, {
         type                    = "managed_rule_group"
         managed_rule_group_name = "AWSManagedRulesKnownBadInputsRuleSet"
-        rule_action_overrides   = var.known_bad_inputs_rule_overrides
       })
     }),
   ] : []

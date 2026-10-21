@@ -29,3 +29,5 @@
 - 2026-10-21: moved pipeline logic into `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`; both pipelines now call the same scripts, and policy files moved to `env/<scope>/<region>.tfvars`.
 - 2026-10-21: validated all three targets with `terraform console` (regional eu-west-1, regional us-east-1, cloudfront us-east-1) and confirmed the two CloudFront rejections.
 - 2026-10-21: resource names now derive from `<name_prefix>-<scope>-<region>` and tags include `Scope`/`Region` (ADR-007); `name_prefix` is capped at 24 characters.
+- 2026-10-21: ran a real read-only `terraform plan` in `us-east-1` against an existing ALB (ARN supplied at runtime) and log bucket `cn-logs-us-east-1`, using local state in a scratch copy: 9 resources to add, 0 to change, 0 to destroy; geo plus per-rule BLOCK path also planned cleanly (10 to add). No apply.
+- 2026-10-21: the real plan exposed and fixed a `concat` panic (`map(dynamic)` vs `map(string)` in `rule_action_overrides`); overrides are now resolved with `lookup()` outside the rule objects, and all rule fields use concrete zero values.

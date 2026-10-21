@@ -39,7 +39,7 @@ output "rules" {
     for rule in local.waf_rules : {
       name     = rule.name
       priority = rule.priority
-      action   = coalesce(rule.action, rule.override_action)
+      action   = rule.override_action != "" ? rule.override_action : rule.action
     }
   ]
 }

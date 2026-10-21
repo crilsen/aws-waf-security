@@ -24,7 +24,7 @@ resource "aws_wafv2_web_acl" "this" {
       priority = rule.value.priority
 
       dynamic "action" {
-        for_each = rule.value.action == null ? [] : [rule.value.action]
+        for_each = rule.value.action == "" ? [] : [rule.value.action]
         content {
           dynamic "allow" {
             for_each = action.value == "allow" ? [1] : []
@@ -42,7 +42,7 @@ resource "aws_wafv2_web_acl" "this" {
       }
 
       dynamic "override_action" {
-        for_each = rule.value.override_action == null ? [] : [rule.value.override_action]
+        for_each = rule.value.override_action == "" ? [] : [rule.value.override_action]
         content {
           dynamic "none" {
             for_each = override_action.value == "none" ? [1] : []
@@ -63,7 +63,7 @@ resource "aws_wafv2_web_acl" "this" {
             vendor_name = managed_rule_group_statement.value.vendor_name
 
             dynamic "rule_action_override" {
-              for_each = managed_rule_group_statement.value.rule_action_overrides
+              for_each = lookup(local.rule_action_overrides, rule.value.name, {})
               content {
                 name = rule_action_override.key
 

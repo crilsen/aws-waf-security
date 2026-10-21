@@ -18,7 +18,6 @@ locals {
       statement = merge(local.statement_defaults, {
         type                    = "managed_rule_group"
         managed_rule_group_name = "AWSManagedRulesCommonRuleSet"
-        rule_action_overrides   = var.common_rule_set_rule_overrides
       })
     }),
   ] : []

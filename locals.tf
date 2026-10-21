@@ -62,27 +62,36 @@ locals {
   geo_country_codes = [for code in var.geo_restricted_countries : upper(code)]
 
   # Shared shape for every rule object. Rule files merge into these defaults so
-  # all rules share one object type and can be concatenated into a single list
-  # consumed by `dynamic "rule"` in waf.tf. Unused fields stay null.
+  # all rules share one concrete type and can be concatenated into a single list
+  # consumed by `dynamic "rule"` in waf.tf.
+  #
+  # Every field has a concrete zero value instead of null: `null` and `{}` become
+  # DynamicPseudoType/EmptyObject at plan time, and `concat` panics when one rule
+  # ends up with a different type from its sibling. Unused fields stay "" or 0.
   rule_defaults = {
-    name            = null
-    priority        = null
-    action          = null
-    override_action = null
-    metric_name     = null
+    name            = ""
+    priority        = 0
+    action          = ""
+    override_action = ""
+    metric_name     = ""
     statement       = null
   }
 
   statement_defaults = {
-    type                    = null
-    managed_rule_group_name = null
+    type                    = ""
+    managed_rule_group_name = ""
     vendor_name             = "AWS"
-    rule_action_overrides   = {}
-    ip_set_arn              = null
-    limit                   = null
-    evaluation_window_sec   = null
-    # Concrete list type on purpose: a tuple here makes `concat` panic with
-    # "inconsistent list element types" once the geo rule sets a real list.
-    country_codes = tolist([])
+    ip_set_arn              = ""
+    limit                   = 0
+    evaluation_window_sec   = 0
+    country_codes           = tolist([])
+  }
+
+  # Managed rule group overrides, keyed by the WAF rule name. They are kept out
+  # of the rule objects because an empty map literal is `map(dynamic)` while the
+  # variables are `map(string)`, and `concat` requires exactly matching types.
+  rule_action_overrides = {
+    "aws-managed-common"           = var.common_rule_set_rule_overrides
+    "aws-managed-known-bad-inputs" = var.known_bad_inputs_rule_overrides
   }
 }

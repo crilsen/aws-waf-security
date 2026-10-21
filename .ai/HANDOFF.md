@@ -27,6 +27,7 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 - Both pipelines implemented and statically verified; they now delegate to `scripts/tf-init.sh`, `tf-plan.sh`, and `tf-apply.sh`. `RULE_MODE` was removed from parameters so policy changes go through git review.
 - Naming: every resource name derives from `<name_prefix>-<scope>-<region>`; tags carry `Scope` and `Region` (ADR-007). `name_prefix` is capped at 24 characters, and renaming replaces resources.
 - Validation passes: `fmt`, `init -backend=false`, `validate`, pipeline checks, `shellcheck`, plus `terraform console -var-file=...` policy resolution for all three targets.
+- A real read-only `terraform plan` was executed on 2026-10-21 in `us-east-1` against an existing ALB and the `cn-logs-us-east-1` bucket, with local state in a scratch copy: `9 to add, 0 to change, 0 to destroy`, and `10 to add` for the geo plus per-rule `BLOCK` variant. Nothing was applied.
 - Nothing was planned, applied, deployed, or authenticated against AWS.
 
 ## What Was Done
@@ -66,7 +67,8 @@ Deliver a Terraform project that protects an existing ALB with an AWS WAFv2 Regi
 
 - `./scripts/validate.sh` — passed: `terraform fmt -check -recursive`, `terraform init -backend=false`, `terraform validate` (AWS provider 5.100.0), `tests/check_pipelines.py`, `shellcheck scripts/*.sh`.
 - `terraform console` with each `env/<scope>/<region>.tfvars` — confirmed different rule sets and actions per target, per-rule `BLOCK` overrides, and that `CLOUDFRONT` rejects a non-`us-east-1` Region and a non-null `alb_arn`.
-- Not validated: `terraform plan`, `terraform apply`, real GitLab/Jenkins execution, any AWS API call.
+- Real read-only `terraform plan` (2026-10-21, `us-east-1`, local state in a scratch copy): 9 to add / 0 to change / 0 to destroy; geo plus per-rule BLOCK variant: 10 to add / 0 / 0.
+- Not validated: `terraform apply`, real GitLab/Jenkins execution.
 
 ## Next Actions
 

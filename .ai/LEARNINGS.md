@@ -83,3 +83,14 @@ Evidence: `aws_wafv2_web_acl_association` only accepts resources such as ALB and
 Pattern / rule: For CloudFront, create the ACL in `us-east-1`, output the ARN, and let the distribution owner set `web_acl_id`; never import a distribution just to attach an ACL. Destroy requires detaching it first.
 Promotion: none
 
+### L-005 — `concat` requires exactly matching types: `map(dynamic)` is not `map(string)`
+
+Date: 2026-10-21
+Status: active
+Confidence: observed
+Scope: terraform
+Context: A real read-only `terraform plan` panicked while `terraform validate` and `terraform console` with the same policy file both passed.
+Evidence: `concat` failed with `panic in function implementation: inconsistent list element types`, comparing `rule_action_overrides: cty.Map(cty.DynamicPseudoType)` (from `tomap({})`) with `cty.Map(cty.String)` (from a `map(string)` variable). `tomap({})` is `map(dynamic)` and does not unify with `map(string)` in `concat`.
+Pattern / rule: Do not put optional maps inside a shared object shape. Keep per-rule lookups (for example rule name to overrides) in a separate local and resolve them with `lookup()` where they are used. Only a real plan evaluates provider-resolved types; treat `validate` as insufficient.
+Promotion: CONVENTIONS.md
+
