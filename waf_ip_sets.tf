@@ -9,7 +9,7 @@ resource "aws_wafv2_ip_set" "allow" {
 
   name               = "${local.name_base}-allow"
   description        = "Operator-provided allow list for ${local.name_base}-web-acl."
-  scope              = "REGIONAL"
+  scope              = var.waf_scope
   ip_address_version = "IPV4"
   addresses          = var.ip_allow_list
 
@@ -21,7 +21,7 @@ resource "aws_wafv2_ip_set" "deny" {
 
   name               = "${local.name_base}-deny"
   description        = "Operator-provided deny list for ${local.name_base}-web-acl."
-  scope              = "REGIONAL"
+  scope              = var.waf_scope
   ip_address_version = "IPV4"
   addresses          = var.ip_deny_list
 
