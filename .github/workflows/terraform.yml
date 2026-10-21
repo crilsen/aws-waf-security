@@ -86,6 +86,13 @@ jobs:
       # scripts/tf-plan.sh assumes the role (GitHub OIDC), initializes the S3
       # backend, plans from env/<scope>/<region>.tfvars, and writes
       # tfplan.bin, tfplan.txt, and tfplan.sha256.
+      - name: OIDC claims (temporary diagnostic)
+        run: |
+          echo "request_url_set=${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          token=$(curl -sS -f -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r .value)
+          echo "$token" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{iss, sub, aud, ref, repository, event_name}'
+
       - name: Plan
         run: ./scripts/tf-plan.sh
 
